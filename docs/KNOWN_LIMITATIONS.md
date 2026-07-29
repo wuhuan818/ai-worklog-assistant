@@ -7,3 +7,4 @@
 - 默认 Mock Provider；真实模型、Embedding/RAG、飞书同步和离线队列未实现。
 - 审核 Webview 仍使用可编辑 JSON 文本，未进行大规模 UI 美化。
 - GitHub Actions 已配置，但需要远程 PR 工作流实际运行后再确认云端 Windows runner 结果。
+- 阶段 3 当前仅允许单个活动任务；重复结束返回 409，项目重复创建在同名同 Workspace 时幂等。

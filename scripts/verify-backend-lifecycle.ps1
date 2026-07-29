@@ -21,9 +21,10 @@ function Start-Backend {
   $info.CreateNoWindow = $true
   $info.RedirectStandardOutput = $true
   $info.RedirectStandardError = $true
-  $info.Environment['WORKLOG_DATA_DIR'] = $dataDir
-  $info.Environment['WORKLOG_SESSION_TOKEN'] = $token
-  $info.Environment['WORKLOG_PORT'] = [string]$port
+  foreach ($entry in [System.Environment]::GetEnvironmentVariables().GetEnumerator()) { $info.EnvironmentVariables[$entry.Key] = [string]$entry.Value }
+  $env:WORKLOG_DATA_DIR = $dataDir
+  $env:WORKLOG_SESSION_TOKEN = $token
+  $env:WORKLOG_PORT = [string]$port
   $started = [Diagnostics.Process]::new()
   $started.StartInfo = $info
   if (-not $started.Start()) { throw 'unable to start backend executable' }

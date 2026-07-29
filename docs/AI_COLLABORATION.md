@@ -6,4 +6,6 @@
 
 当前尚未验证或未实现的能力包括：PyInstaller 发布后自动启动、完整终端输出捕获、精确代码 Diff、Embedding/RAG、飞书同步、离线队列和多用户登录。
 
+阶段 3 由 Codex 在阶段 2 基线 `887c0df` 上实现项目/任务生命周期、SQLite 向后兼容迁移、单活动任务约束、插件恢复与计时，并增加后端单元测试和 `scripts/verify-task-lifecycle.ps1`。本阶段不扩展事件采集、Bug、AI 总结或知识库能力。
+
 后续版本应通过 GitHub 的 `main` 稳定分支、`develop` 开发分支、版本标签和代码审阅 Issue 逐轮审阅和迭代。

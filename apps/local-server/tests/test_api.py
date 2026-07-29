@@ -1,6 +1,9 @@
 import os
 import sys
 import tempfile
+import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -96,3 +99,43 @@ def test_sensitive_information_is_redacted(client, headers):
     assert stored['api_key'] == '[REDACTED]'
     assert stored['nested']['password'] == '[REDACTED]'
     assert stored['text'] == '[REDACTED]'
+
+
+def test_project_workspace_identity_and_list_order(client, headers):
+    first = client.post('/projects', headers=headers, json={'name': '  Lifecycle  ', 'workspace_path': 'C:\\work'}).json()
+    duplicate = client.post('/projects', headers=headers, json={'name': 'lifecycle', 'workspace_path': 'C:\\work'}).json()
+    other = client.post('/projects', headers=headers, json={'name': 'Lifecycle', 'workspace_path': 'C:\\other'}).json()
+    assert first['id'] == duplicate['id']
+    assert other['id'] != first['id']
+    assert client.get('/projects', headers=headers).status_code == 200
+
+
+def test_task_lifecycle_active_end_duration_and_persistence(client, headers, tmp_path):
+    project = client.post('/projects', headers=headers, json={'name': 'Persistent'}).json()
+    started = client.post('/tasks', headers=headers, json={'name': 'Lifecycle', 'project_id': project['id'], 'tags': [' ui ', 'UI', 'backend']}).json()
+    assert started['status'] == 'active' and started['tags'] == ['ui', 'backend']
+    assert client.get('/tasks/active', headers=headers).json()['id'] == started['id']
+    assert client.get('/tasks/%s' % started['id'], headers=headers).json()['id'] == started['id']
+    time.sleep(1.1)
+    ended = client.post('/tasks/%s/end' % started['id'], headers=headers).json()
+    assert ended['status'] == 'completed' and ended['ended_at'] and ended['duration_seconds'] >= 1
+    assert client.get('/tasks/active', headers=headers).json() is None
+    assert client.post('/tasks/%s/end' % started['id'], headers=headers).status_code == 409
+    assert sqlite3.connect(main.DB_PATH).execute('SELECT COUNT(*) FROM projects').fetchone()[0] == 1
+    assert sqlite3.connect(main.DB_PATH).execute('SELECT status,duration_seconds FROM tasks').fetchone()[0:2] == ('completed', 1)
+
+
+def test_active_task_conflict_and_missing_end(client, headers):
+    first = create_task(client, headers)
+    conflict = client.post('/tasks', headers=headers, json={'name': 'Second', 'project': 'sample'})
+    assert conflict.status_code == 409 and first['name'] in conflict.json()['detail'] and first['id'] in conflict.json()['detail']
+    assert client.post('/tasks/not-found/end', headers=headers).status_code == 404
+
+
+def test_restart_reads_same_sqlite_state(client, headers, tmp_path):
+    task = create_task(client, headers)
+    db_path = main.DB_PATH
+    main.DB_PATH = db_path
+    restarted = TestClient(app)
+    recovered = restarted.get('/tasks/active', headers=headers).json()
+    assert recovered['id'] == task['id'] and recovered['started_at'] == task['started_at']
