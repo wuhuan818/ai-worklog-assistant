@@ -31,6 +31,7 @@ test('real packaged backend remains healthy across restart for five seconds', { 
   try {
     await manager.start();
     const firstPid = manager.pid;
+    console.log(`REAL_BACKEND_FIRST_PID=${firstPid};REAL_BACKEND_PORT=${manager.port}`);
     assert.equal(manager.state, 'healthy');
     await sleep(5000);
     assert.equal(manager.state, 'healthy');
@@ -38,6 +39,7 @@ test('real packaged backend remains healthy across restart for five seconds', { 
 
     await manager.restart();
     const secondPid = manager.pid;
+    console.log(`REAL_BACKEND_SECOND_PID=${secondPid};REAL_BACKEND_PORT=${manager.port}`);
     assert.equal(manager.state, 'healthy');
     assert.notEqual(secondPid, firstPid);
     await sleep(5000);
