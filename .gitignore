@@ -1,0 +1,67 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+node_modules/
+dist/
+*.vsix
+.pytest_cache/
+.coverage
+knowledge/daily-records/*.md
+knowledge/projects/*/task-records/*.md
+knowledge/projects/*/bugs/*.md
+knowledge/projects/*/solutions/*.md
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.spec
+
+# Node / VS Code extension
+node_modules/
+out/
+.vscode-test/
+*.vsix
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+runtime/
+data/
+logs/
+*.log
+
+# Generated knowledge and temporary diffs
+knowledge/*/
+!knowledge/daily-records/
+!knowledge/projects/
+knowledge/daily-records/*
+knowledge/projects/*
+!knowledge/daily-records/.gitkeep
+!knowledge/projects/.gitkeep
+temp/
+tmp/
+*.diff.tmp
+
+# IDE and OS
+.idea/
+.DS_Store
+Thumbs.db
