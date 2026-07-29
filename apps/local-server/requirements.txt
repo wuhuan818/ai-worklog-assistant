@@ -3,3 +3,4 @@ uvicorn==0.22.0
 pydantic>=2.0
 pytest==7.4.4
 httpx==0.24.1
+PyInstaller==5.13.2

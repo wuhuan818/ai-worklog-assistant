@@ -1,0 +1,51 @@
+name: v0.1.1 verification
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r apps/local-server/requirements.txt
+      - run: python -m pytest apps/local-server/tests -q
+
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
+      - run: npm ci
+      - run: npm run compile
+      - run: npm run lint
+      - run: npm test
+
+  packaged-backend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r apps/local-server/requirements.txt
+      - shell: pwsh
+        run: ./scripts/build-backend.ps1
+      - run: python scripts/smoke_backend.py --executable artifacts/backend/ai-worklog-server.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-worklog-server-windows
+          path: artifacts/backend/ai-worklog-server.exe

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.1-verification] - 2026-07-29
+
+### Added
+
+- FastAPI 全链路验证测试，覆盖 Token、项目、任务、事件、Bug、Mock 草稿、Markdown、检索和敏感信息过滤。
+- 可测试的 VS Code API Client、任务状态转换、错误处理和 Token 请求头。
+- GitHub Actions Python、TypeScript、lint、扩展测试和 Windows PyInstaller 构建任务。
+- PyInstaller 后端打包、用户可写数据目录和健康检查 smoke 脚本。
+- VS Code 后端启动、健康检查、重启和退出清理的服务管理器。
+- 人工验收清单和验证报告。
+
+### Known limitations
+
+- VS Code Extension Development Host 的真实启动、异常恢复和进程清理仍需人工验证。
+
 ## [0.1.0] - 2026-07-29
 
 ### Added
