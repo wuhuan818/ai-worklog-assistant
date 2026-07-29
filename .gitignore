@@ -57,6 +57,8 @@ knowledge/daily-records/*
 knowledge/projects/*
 !knowledge/daily-records/.gitkeep
 !knowledge/projects/.gitkeep
+artifacts/
+apps/vscode-extension/server/
 temp/
 tmp/
 *.diff.tmp

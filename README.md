@@ -14,20 +14,20 @@
 要求 Python 3.11+、Node.js 18+、VS Code 1.85+。
 
 ```powershell
-.scripts\setup.ps1
-.scripts\test.ps1
-.scripts\dev.ps1
-.scripts\build-extension.ps1
+.\scripts\setup.ps1
+.\scripts\test.ps1
+.\scripts\dev.ps1
+.\scripts\verify.ps1
 ```
 
-开发时也可直接运行：`python -m uvicorn app.main:app --app-dir apps/local-server --host 127.0.0.1 --port 8765`。插件默认连接该端口；发布版可用 PyInstaller 打包后由插件启动。
+`verify.ps1` 执行后端测试、扩展 compile/lint/test、PyInstaller 打包和打包后端 smoke。运行时数据默认位于 `%LOCALAPPDATA%\AIWorklogAssistant`，后端产物位于 `artifacts/backend/ai-worklog-server.exe`。
 
 模型配置通过插件设置 `aiWorklog.baseUrl`、`aiWorklog.model`、`aiWorklog.enabled`，密钥使用 SecretStorage。未配置模型时使用 Mock Provider。
 
-## 演示
+## 演示与验证
 
-执行 `docs/DEMO_SCRIPT.md`：开始任务 → 修改并保存文件 → 创建/解决 Bug → 添加备注 → 结束任务 → 审核 Mock 总结 → 确认并搜索知识库。
+执行 `docs/DEMO_SCRIPT.md`。人工逐步验收见 `docs/MANUAL_TEST_CHECKLIST.md`，自动验证结果见 `docs/VERIFICATION_REPORT.md`。
 
-## 测试与限制
+## 限制
 
-后端测试：`.\scripts\test.ps1`。完整人工验收见 `docs/MANUAL_TEST_CHECKLIST.md`。终端 Shell Integration、真实模型、语义检索、飞书和离线队列属于后续能力，见 `docs/KNOWN_LIMITATIONS.md`。
+终端 Shell Integration、真实模型、语义检索、飞书、离线队列和 VS Code 宿主的真实生命周期仍分别按 `docs/KNOWN_LIMITATIONS.md` 标注处理。

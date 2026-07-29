@@ -7,13 +7,17 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parents[3]
-DB_PATH = Path(os.getenv('WORKLOG_DB', ROOT / 'worklog.db'))
-KNOWLEDGE = Path(os.getenv('WORKLOG_KNOWLEDGE', ROOT / 'knowledge'))
+USER_DATA_DIR = Path(os.getenv('WORKLOG_DATA_DIR', Path.home() / 'AppData' / 'Local' / 'AIWorklogAssistant'))
+DB_PATH = Path(os.getenv('WORKLOG_DB', USER_DATA_DIR / 'worklog.db'))
+KNOWLEDGE = Path(os.getenv('WORKLOG_KNOWLEDGE', USER_DATA_DIR / 'knowledge'))
 TOKEN = os.getenv('WORKLOG_SESSION_TOKEN', 'dev-token')
+HOST = os.getenv('WORKLOG_HOST', '127.0.0.1')
+PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
 
 def now() -> str: return datetime.now(timezone.utc).isoformat()
 def db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB_PATH); c.row_factory = sqlite3.Row
     c.executescript('''CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, name TEXT); CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT UNIQUE); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,name TEXT,description TEXT,requirement_id TEXT,tags TEXT,status TEXT,started_at TEXT,ended_at TEXT); CREATE TABLE IF NOT EXISTS bugs(id TEXT PRIMARY KEY,user_id TEXT,task_id TEXT,title TEXT,status TEXT,created_at TEXT,resolved_at TEXT,notes TEXT,root_cause TEXT,solution TEXT); CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,task_id TEXT,bug_id TEXT,type TEXT,timestamp TEXT,payload TEXT,sensitivity TEXT); CREATE TABLE IF NOT EXISTS summary_drafts(id TEXT PRIMARY KEY,task_id TEXT,status TEXT,content TEXT,created_at TEXT,updated_at TEXT); CREATE TABLE IF NOT EXISTS knowledge_entries(id TEXT PRIMARY KEY,task_id TEXT,type TEXT,title TEXT,content TEXT,source_file TEXT);''')
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); c.commit(); return c
@@ -106,3 +110,8 @@ def search(q:str,authorization:Optional[str]=Header(None)):
 @app.post('/knowledge/ask')
 def ask(q:str,authorization:Optional[str]=Header(None)):
     auth(authorization); return {'answer':'未配置模型，以下为关键词检索结果。','sources':search(q,authorization)}
+
+if __name__ == '__main__':
+    import uvicorn
+    db()
+    uvicorn.run(app, host=HOST, port=PORT, log_level='warning')
