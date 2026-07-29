@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { backendStateLabel } from './backendState';
 import { ServerManager } from './serverManager';
 import { TaskState } from './taskState';
 
@@ -6,10 +7,19 @@ class Provider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly server: ServerManager) {}
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true };
-    view.webview.html = `<h3>AI Worklog</h3><p id="backend">后端状态：${this.server.running ? '运行中' : '未启动'}</p><p id="state">当前任务：${this.state.label()}</p><p id="bug">当前 Bug：暂无 Bug</p><button id="start">开始任务</button><button id="end">结束任务</button><button id="note">添加备注</button><script>const vscode=acquireVsCodeApi();start.onclick=()=>vscode.postMessage({type:'start'});end.onclick=()=>vscode.postMessage({type:'end'});note.onclick=()=>vscode.postMessage({type:'note'});</script>`;
+    const stateLabel = () => backendStateLabel(this.server.state);
+    view.webview.html = `<h3>AI Worklog</h3><p id="backend">后端状态：${stateLabel()}</p><p id="task">当前任务：${this.state.label()}</p><p id="bug">当前 Bug：暂无 Bug</p><button id="startServer">启动后端</button><button id="restartServer">重启后端</button><button id="start">开始任务</button><button id="end">结束任务</button><button id="note">添加备注</button><script>const vscode=acquireVsCodeApi();const send=type=>vscode.postMessage({type});startServer.onclick=()=>send('startServer');restartServer.onclick=()=>send('restartServer');start.onclick=()=>send('start');end.onclick=()=>send('end');note.onclick=()=>send('note');window.addEventListener('message',event=>{if(event.data.type==='backendState'){document.getElementById('backend').textContent='后端状态：'+event.data.label;}});</script>`;
+    const stateSubscription = this.server.onDidChangeState(change => { void view.webview.postMessage({ type: 'backendState', state: change.state, label: backendStateLabel(change.state), error: change.error }); });
+    this.context.subscriptions.push(stateSubscription);
+    view.onDidDispose(() => stateSubscription.dispose());
     view.webview.onDidReceiveMessage(async message => {
-      try { if (message.type === 'start') await startTask(this.context, this.state, this.server); if (message.type === 'end') await endTask(this.context, this.state, this.server); if (message.type === 'note') await addNote(this.state, this.server); }
-      catch (error) { vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); }
+      try {
+        if (message.type === 'start') await startTask(this.context, this.state, this.server);
+        if (message.type === 'end') await endTask(this.context, this.state, this.server);
+        if (message.type === 'note') await addNote(this.state, this.server);
+        if (message.type === 'startServer') await ensureServer(this.server);
+        if (message.type === 'restartServer') await this.server.restart();
+      } catch (error) { vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); }
     });
   }
 }
@@ -38,8 +48,11 @@ async function addNote(state: TaskState, server: ServerManager): Promise<void> {
   const note = await vscode.window.showInputBox({ prompt: '备注' }); if (!note) return; await (await ensureServer(server)).addEvent({ projectId: state.task.project_id, taskId: state.task.id, type: 'manual_note', timestamp: new Date().toISOString(), payload: { note } });
 }
 
+let activeServer: ServerManager | undefined;
+
 export function activate(context: vscode.ExtensionContext): void {
   const state = new TaskState(); const server = new ServerManager(context);
+  activeServer = server;
   const run = (fn: () => Promise<void>) => fn().catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
   context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.startTask', () => run(() => startTask(context, state, server))));
   context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.endTask', () => run(() => endTask(context, state, server))));
@@ -54,4 +67,4 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => { if (state.task && server.api) server.api.addEvent({ projectId: state.task.project_id, taskId: state.task.id, type: 'file_saved', timestamp: new Date().toISOString(), payload: { file: document.uri.fsPath } }).catch(() => undefined); }));
   context.subscriptions.push({ dispose: () => { void server.stop(); } });
 }
-export function deactivate(): void {}
+export async function deactivate(): Promise<void> { await activeServer?.stop(); activeServer = undefined; }

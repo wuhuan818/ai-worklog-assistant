@@ -1,4 +1,4 @@
-# 人工验收清单（v0.1.1-verification）
+# 人工验收清单（v0.1.1-verification / 阶段 2）
 
 说明：每一步都记录操作、预期结果、截图位置和失败时的日志位置。截图只在人工执行时产生；本版本不把未运行 VS Code 的能力标记为自动通过。
 
@@ -10,16 +10,16 @@
    - 若侧边栏出现“没有可提供视图数据的已注册数据提供程序”，检查 `apps/vscode-extension/package.json` 中 `aiWorklog.sidebar` 的 `type` 是否为 `webview`，以及编译产物是否包含 `registerWebviewViewProvider`。
 
 2. **准备打包后端**
-   - 操作：运行 `scripts/build-backend.ps1`，再运行 `scripts/build-extension.ps1`，将后端复制到扩展 `server/` 目录。
-   - 预期结果：插件实际目录为 `apps/vscode-extension`，入口为 `dist/extension.js`，扩展目录下存在 `server/ai-worklog-server.exe`。
+   - 操作：运行 `scripts/build-backend.ps1`，确保仓库根目录 `artifacts/backend/ai-worklog-server.exe` 存在。
+   - 预期结果：插件从 workspace 根目录解析该 EXE；仍可使用 `scripts/build-extension.ps1` 将其复制到扩展 `server/` 目录。插件实际目录为 `apps/vscode-extension`，入口为 `dist/extension.js`。
    - 截图：扩展目录和构建终端输出。
    - 失败日志：PowerShell 构建窗口；`artifacts/pyinstaller` 警告文件。
 
 3. **后端启动与健康检查**
-   - 操作：执行 `AI Worklog: Start Task`。
-   - 预期结果：插件找到并启动打包后端，任务创建成功，状态栏显示 Worklog。
-   - 截图：Worklog 侧边栏和状态栏。
-   - 失败日志：VS Code Developer Tools Console；用户数据目录 `%LOCALAPPDATA%\AIWorklogAssistant`。
+   - 操作：在 AI Worklog 侧边栏点击“启动后端”，必要时再执行 `AI Worklog: Start Task`。
+   - 预期结果：侧边栏自动从“启动中”变为“正常”，随后任务创建成功，状态栏显示 Worklog。
+   - 截图：侧边栏的状态变化和状态栏。
+   - 失败日志：VS Code `View > Output > AI Worklog`；Developer Tools Console；用户数据目录 `%LOCALAPPDATA%\AIWorklogAssistant`。
 
 4. **创建任务**
    - 操作：输入任务名称，使用当前 Workspace 项目名。
@@ -64,16 +64,16 @@
    - 失败日志：Developer Tools Console；知识库目录。
 
 11. **后端异常与重启**
-    - 操作：结束打包后端进程，执行 `AI Worklog: Restart Local Server`。
-    - 预期结果：异常被清楚提示；手动重启后健康检查恢复。
-    - 截图：错误提示和重启成功提示。
-    - 失败日志：Developer Tools Console；任务管理器；后端 stderr。
+    - 操作：结束当前扩展启动的后端进程，观察侧边栏变为“异常”，再执行 `AI Worklog: Restart Local Server`。
+    - 预期结果：异常被清楚提示；重启过程显示“启动中”，健康检查后恢复“正常”，原用户数据仍在。
+    - 截图：异常状态、重启状态和恢复后的侧边栏。
+    - 失败日志：VS Code `View > Output > AI Worklog`；Developer Tools Console；任务管理器；用户数据目录。
 
 12. **VS Code 关闭清理**
     - 操作：关闭 Extension Development Host。
     - 预期结果：插件 deactivate 清理后端子进程。
     - 截图：任务管理器中进程消失（如可见）。
-    - 失败日志：Developer Tools Console；任务管理器进程列表。
+    - 失败日志：VS Code `View > Output > AI Worklog`；Developer Tools Console；任务管理器进程列表。
 
 13. **安全检查**
     - 操作：检查打包目录、用户数据目录和日志；执行敏感字段测试。
