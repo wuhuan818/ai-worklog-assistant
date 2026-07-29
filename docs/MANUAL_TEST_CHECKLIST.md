@@ -7,6 +7,7 @@
    - 预期结果：VS Code 自动执行 `apps/vscode-extension` 的 TypeScript compile，并打开 Extension Development Host。
    - 截图：调试配置名称、Extension Development Host 窗口和 AI Worklog Activity Bar。
    - 失败日志：VS Code `Help > Toggle Developer Tools` Console；根目录 `.vscode/tasks.json` 任务输出；`apps/vscode-extension` 编译输出。
+   - 若侧边栏出现“没有可提供视图数据的已注册数据提供程序”，检查 `apps/vscode-extension/package.json` 中 `aiWorklog.sidebar` 的 `type` 是否为 `webview`，以及编译产物是否包含 `registerWebviewViewProvider`。
 
 2. **准备打包后端**
    - 操作：运行 `scripts/build-backend.ps1`，再运行 `scripts/build-extension.ps1`，将后端复制到扩展 `server/` 目录。

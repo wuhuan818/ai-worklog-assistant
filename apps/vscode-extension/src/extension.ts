@@ -6,9 +6,9 @@ class Provider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly server: ServerManager) {}
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true };
-    view.webview.html = `<h3>AI Worklog</h3><p id="state">${this.state.label()}</p><button id="start">开始任务</button><button id="end">结束任务</button><script>const vscode=acquireVsCodeApi();start.onclick=()=>vscode.postMessage({type:'start'});end.onclick=()=>vscode.postMessage({type:'end'});</script>`;
+    view.webview.html = `<h3>AI Worklog</h3><p id="backend">后端状态：${this.server.running ? '运行中' : '未启动'}</p><p id="state">当前任务：${this.state.label()}</p><p id="bug">当前 Bug：暂无 Bug</p><button id="start">开始任务</button><button id="end">结束任务</button><button id="note">添加备注</button><script>const vscode=acquireVsCodeApi();start.onclick=()=>vscode.postMessage({type:'start'});end.onclick=()=>vscode.postMessage({type:'end'});note.onclick=()=>vscode.postMessage({type:'note'});</script>`;
     view.webview.onDidReceiveMessage(async message => {
-      try { if (message.type === 'start') await startTask(this.context, this.state, this.server); if (message.type === 'end') await endTask(this.context, this.state, this.server); }
+      try { if (message.type === 'start') await startTask(this.context, this.state, this.server); if (message.type === 'end') await endTask(this.context, this.state, this.server); if (message.type === 'note') await addNote(this.state, this.server); }
       catch (error) { vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); }
     });
   }
