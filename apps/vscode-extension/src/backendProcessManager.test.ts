@@ -22,6 +22,7 @@ function manager(overrides: Partial<ConstructorParameters<typeof BackendProcessM
     logger: { appendLine: line => logs.push(line) },
     spawnProcess: () => { const process = new FakeProcess(); processes.push(process); return process as unknown as import('node:child_process').ChildProcess; },
     healthCheck: async () => undefined,
+    killProcess: async child => { child.kill(); },
     pollIntervalMs: 1,
     startupTimeoutMs: 50,
     stopTimeoutMs: 50,
@@ -54,6 +55,7 @@ test('duplicate concurrent starts share one promise and one process', async () =
   const setup = manager({ healthCheck: async () => new Promise<void>(resolve => { resolveHealth = resolve; }) });
   const first = setup.instance.start();
   const second = setup.instance.start();
+  while (!resolveHealth) await new Promise(resolve => setImmediate(resolve));
   assert.equal(setup.processes.length, 1);
   resolveHealth?.();
   await Promise.all([first, second]);
@@ -87,7 +89,7 @@ test('abnormal exit becomes error and logs exit code', async () => {
   await setup.instance.start();
   setup.processes[0].emit('exit', 7, null);
   assert.equal(setup.instance.state, 'error');
-  assert.match(setup.logs.join('\n'), /退出码=7/);
+  assert.match(setup.logs.join('\n'), /exitCode=7/);
 });
 
 test('captured output never leaks the session token', async () => {
@@ -101,4 +103,16 @@ test('captured output never leaks the session token', async () => {
   process?.stdout.write(`token=${token}`);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(setup.logs.some(line => line.includes(token)), false);
+});
+
+test('a stale exit event cannot change the state of a newer generation', async () => {
+  const setup = manager();
+  await setup.instance.start();
+  const first = setup.processes[0];
+  await setup.instance.restart();
+  assert.equal(setup.instance.state, 'healthy');
+  first.emit('exit', 1, null);
+  assert.equal(setup.instance.state, 'healthy');
+  assert.match(setup.logs.join('\n'), /忽略旧进程 exit event/);
+  await setup.instance.stop();
 });

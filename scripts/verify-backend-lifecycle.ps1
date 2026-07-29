@@ -60,6 +60,10 @@ function Stop-OwnedBackend {
   if (-not $process.WaitForExit(5000)) { throw "owned backend PID $($process.Id) did not exit" }
 }
 
+function Get-ArtifactProcesses {
+  Get-Process ai-worklog-server -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+}
+
 try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-backend.ps1')
   Assert-Pass 'PYINSTALLER_BUILD' (Test-Path -LiteralPath $exe) $exe
@@ -85,6 +89,7 @@ try {
   Assert-Pass 'HEALTH_AFTER_RESTART' (Wait-Healthy)
   Stop-OwnedBackend
   Assert-Pass 'FINAL_STOP' $process.HasExited
+  Assert-Pass 'NO_ARTIFACT_PROCESS' (@(Get-ArtifactProcesses).Count -eq 0) $exe
   Write-Output 'BACKEND_LIFECYCLE=PASS'
 } catch {
   Write-Error "BACKEND_LIFECYCLE=FAIL: $($_.Exception.Message)"

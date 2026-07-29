@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { ChildProcess, spawn, SpawnOptions } from 'node:child_process';
+import { ChildProcess, execFile, spawn, SpawnOptions } from 'node:child_process';
+import * as net from 'node:net';
 import { ApiClient } from './apiClient';
 import { BackendState } from './backendState';
 
@@ -17,8 +18,11 @@ export interface BackendProcessManagerOptions {
   stopTimeoutMs?: number;
   logger?: BackendLogger;
   spawnProcess?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  portSelector?: (preferredPort: number) => Promise<number>;
+  killProcess?: (child: ChildProcess) => Promise<void>;
   healthCheck?: (baseUrl: string, token: string) => Promise<void>;
   mkdir?: (directory: string) => void;
+  logPath?: string;
 }
 
 export interface BackendStateChange {
@@ -41,6 +45,36 @@ function redact(value: string, token: string): string {
     .replace(/\bsk-[A-Za-z0-9_-]{10,}\b/g, '[REDACTED]');
 }
 
+function probePort(port: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      const address = server.address();
+      const selected = typeof address === 'object' && address ? address.port : port;
+      server.close(error => error ? reject(error) : resolve(selected));
+    });
+  });
+}
+
+async function selectAvailablePort(preferredPort: number): Promise<number> {
+  try { return await probePort(preferredPort); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
+    return probePort(0);
+  }
+}
+
+function terminateOwnedProcess(child: ChildProcess): Promise<void> {
+  if (process.platform !== 'win32' || !child.pid) {
+    try { child.kill(); } catch { /* The exit event will complete cleanup. */ }
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], () => resolve());
+  });
+}
+
 export class BackendProcessManager {
   private readonly token = randomBytes(24).toString('hex');
   private readonly spawnProcess: NonNullable<BackendProcessManagerOptions['spawnProcess']>;
@@ -49,6 +83,8 @@ export class BackendProcessManager {
   private readonly healthRequestTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly stopTimeoutMs: number;
+  private readonly portSelector: NonNullable<BackendProcessManagerOptions['portSelector']>;
+  private readonly killProcess: NonNullable<BackendProcessManagerOptions['killProcess']>;
   private readonly listeners = new Set<Listener>();
   private process?: ChildProcess;
   private client?: ApiClient;
@@ -56,6 +92,9 @@ export class BackendProcessManager {
   private stopping = false;
   private currentState: BackendState = 'stopped';
   private lastError?: string;
+  private activePort: number;
+  private generation = 0;
+  private activeGeneration = 0;
 
   constructor(private readonly options: BackendProcessManagerOptions) {
     this.spawnProcess = options.spawnProcess || spawn;
@@ -64,14 +103,18 @@ export class BackendProcessManager {
     this.healthRequestTimeoutMs = options.healthRequestTimeoutMs ?? 1000;
     this.pollIntervalMs = options.pollIntervalMs ?? 250;
     this.stopTimeoutMs = options.stopTimeoutMs ?? 3000;
+    this.portSelector = options.portSelector || selectAvailablePort;
+    this.killProcess = options.killProcess || terminateOwnedProcess;
+    this.activePort = options.port;
   }
 
   get state(): BackendState { return this.currentState; }
   get pid(): number | undefined { return this.process?.pid; }
-  get port(): number { return this.options.port; }
+  get port(): number { return this.activePort; }
   get api(): ApiClient | undefined { return this.client; }
   get running(): boolean { return this.currentState === 'starting' || this.currentState === 'healthy'; }
   get lastErrorMessage(): string | undefined { return this.lastError; }
+  get logPath(): string | undefined { return this.options.logPath; }
 
   onDidChangeState(listener: Listener): { dispose: () => void } {
     this.listeners.add(listener);
@@ -92,33 +135,50 @@ export class BackendProcessManager {
     try { executable = typeof this.options.executablePath === 'function' ? this.options.executablePath() : this.options.executablePath; }
     catch (error) { return this.fail(error); }
 
+    try { this.activePort = await this.portSelector(this.options.port); }
+    catch (error) { return this.fail(error); }
     this.log(`解析出的后端路径：${executable}`);
-    this.log(`启动时间：${new Date().toISOString()}；端口：${this.options.port}`);
+    this.log(`EXE 是否存在：true`);
+    this.log(`启动时间：${new Date().toISOString()}；端口：${this.activePort}；用户数据目录：${this.options.dataDir}`);
     try { this.options.mkdir?.(this.options.dataDir); } catch (error) { return this.fail(error); }
 
     let spawnError: Error | undefined;
+    let processExited = false;
+    const processGeneration = ++this.generation;
+    this.activeGeneration = processGeneration;
     try {
       this.stopping = false;
-      this.process = this.spawnProcess(executable, [], {
+      const child = this.spawnProcess(executable, [], {
         env: {
           ...process.env,
           WORKLOG_SESSION_TOKEN: this.token,
-          WORKLOG_PORT: String(this.options.port),
+          WORKLOG_PORT: String(this.activePort),
           WORKLOG_DATA_DIR: this.options.dataDir,
         },
         windowsHide: true,
       });
-      this.process.stdout?.on('data', data => this.log(`[stdout] ${String(data).trimEnd()}`));
-      this.process.stderr?.on('data', data => this.log(`[stderr] ${String(data).trimEnd()}`));
-      this.process.on('error', error => {
+      this.process = child;
+      this.log(`spawn 成功：PID=${child.pid ?? 'unknown'}`);
+      child.stdout?.on('data', data => this.log(`[stdout] ${String(data).trimEnd()}`));
+      child.stderr?.on('data', data => this.log(`[stderr] ${String(data).trimEnd()}`));
+      child.on('error', error => {
+        if (this.process !== child || this.activeGeneration !== processGeneration) {
+          this.log(`忽略旧进程 error event：PID=${child.pid ?? 'unknown'}`);
+          return;
+        }
         spawnError = error;
         this.lastError = safeError(error);
-        this.log(`启动错误：${this.lastError}`);
+        this.log(`error event：${this.lastError}`);
         if (this.currentState === 'starting') this.setState('error', this.lastError);
       });
-      this.process.on('exit', (code, signal) => {
+      child.on('exit', (code, signal) => {
+        if (this.process !== child || this.activeGeneration !== processGeneration) {
+          this.log(`忽略旧进程 exit event：PID=${child.pid ?? 'unknown'}，exitCode=${code ?? 'null'}`);
+          return;
+        }
+        processExited = true;
         const abnormal = !this.stopping && code !== 0;
-        this.log(`后端退出：退出码=${code ?? 'null'}，信号=${signal ?? 'none'}`);
+        this.log(`后端退出：PID=${child.pid ?? 'unknown'}，exitCode=${code ?? 'null'}，exitSignal=${signal ?? 'none'}`);
         this.client = undefined;
         this.process = undefined;
         if (abnormal) this.setState('error', `后端异常退出（退出码 ${code ?? 'null'}）`);
@@ -126,19 +186,21 @@ export class BackendProcessManager {
       });
     } catch (error) { return this.fail(error); }
 
-    const baseUrl = `http://127.0.0.1:${this.options.port}`;
+    const baseUrl = `http://127.0.0.1:${this.activePort}`;
     const deadline = Date.now() + this.startupTimeoutMs;
     let lastError = '健康检查超时';
     while (Date.now() < deadline) {
       if (spawnError) return this.fail(spawnError);
+      if (processExited) return this.fail(new Error('后端进程在健康检查期间退出'));
       try {
         await this.withTimeout(this.healthCheck(baseUrl, this.token), this.healthRequestTimeoutMs);
         this.client = new ApiClient(baseUrl, this.token);
-        this.log('健康检查结果：healthy');
+        this.log(`health 请求结果：healthy；端口=${this.activePort}`);
         this.setState('healthy');
         return this.client;
       } catch (error) {
         lastError = safeError(error);
+        this.log(`health 请求失败：${lastError}`);
         await new Promise(resolve => setTimeout(resolve, this.pollIntervalMs));
       }
     }
@@ -160,7 +222,12 @@ export class BackendProcessManager {
     throw new Error(`本地后端启动失败：${this.lastError}`);
   }
 
-  async restart(): Promise<ApiClient> { await this.stop(); return this.start(); }
+  async restart(): Promise<ApiClient> {
+    this.log('重启流程：开始停止旧进程');
+    await this.stop();
+    this.log('重启流程：旧进程已停止，开始启动新进程');
+    return this.start();
+  }
 
   async stop(): Promise<void> {
     const child = this.process;
@@ -168,12 +235,14 @@ export class BackendProcessManager {
     if (!child) { this.setState('stopped'); return; }
     this.stopping = true;
     this.setState('stopping');
-    child.kill();
+    this.log(`停止流程：PID=${child.pid ?? 'unknown'}`);
+    await this.killProcess(child);
     await new Promise<void>(resolve => {
       const timer = setTimeout(resolve, this.stopTimeoutMs);
       child.once('exit', () => { clearTimeout(timer); resolve(); });
     });
     if (this.process === child) this.process = undefined;
+    this.log(`停止流程完成：PID=${child.pid ?? 'unknown'}`);
     this.setState('stopped');
   }
 
@@ -181,6 +250,7 @@ export class BackendProcessManager {
     this.currentState = state;
     if (error) this.lastError = error;
     const change = { state, pid: this.pid, port: this.port, error: error || this.lastError };
+    this.log(`状态变化：${state}${error ? `；错误=${error}` : ''}`);
     for (const listener of this.listeners) listener(change);
   }
 
