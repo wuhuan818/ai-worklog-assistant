@@ -6,31 +6,35 @@ import { ServerManager } from './serverManager';
 import { TaskState } from './taskState';
 import { TaskLifecycleController } from './taskLifecycleController';
 import { EventCaptureController } from './eventCapture/eventCaptureController';
+import { WorklogEvent } from './apiClient';
 
 class Provider implements vscode.WebviewViewProvider {
-  constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly server: ServerManager, private readonly controller: TaskLifecycleController) {}
+  constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly server: ServerManager, private readonly controller: TaskLifecycleController, private readonly events: EventCaptureController) {}
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true };
     const stateLabel = () => backendStateLabel(this.server.state);
     const escape = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character));
     const lastError = this.server.lastErrorMessage ? escape(this.server.lastErrorMessage) : '无';
     const logPath = escape(this.server.logPath || '未配置');
-    view.webview.html = `<h3>AI Worklog</h3><p id="backend">后端状态：${stateLabel()}</p><p id="error">最近一次错误：${lastError}</p><p id="logPath">日志文件：${logPath}</p><p id="workspace">当前 Workspace：${escape(vscode.workspace.name || '未打开文件夹')}</p><p id="project">当前项目：同步中</p><p id="task">当前任务：${escape(this.state.label())}</p><p id="started">开始时间：-</p><p id="duration">已工作时长：-</p><p id="status">任务状态：-</p><button id="showLogs">查看日志</button><button id="startServer">启动后端</button><button id="restartServer">重启后端</button><button id="start" disabled>开始任务</button><button id="end" disabled>结束任务</button><button id="refresh" disabled>刷新状态</button><button id="note" disabled>添加备注</button><script>const vscode=acquireVsCodeApi();const send=type=>vscode.postMessage({type});['showLogs','startServer','restartServer','start','end','refresh','note'].forEach(id=>document.getElementById(id).onclick=()=>send(id));window.addEventListener('message',event=>{const d=event.data;if(d.type==='backendState'){backend.textContent='后端状态：'+d.label;if(d.error)error.textContent='最近一次错误：'+d.error;const ready=d.state==='healthy';window.backendReady=ready;['start','end','refresh','note'].forEach(id=>document.getElementById(id).disabled=!ready);if(ready){end.disabled=!window.taskActive;start.disabled=window.taskActive;}}if(d.type==='taskState'){window.taskActive=!!d.active;project.textContent='当前项目：'+d.project;task.textContent='当前任务：'+d.name;started.textContent='开始时间：'+d.started;duration.textContent='已工作时长：'+d.duration;status.textContent='任务状态：'+d.status;const ready=window.backendReady===true;end.disabled=!ready||!d.active;start.disabled=!ready||d.active;}});</script>`;
+    view.webview.html = `<h3>AI Worklog</h3><p id="backend">后端状态：${stateLabel()}</p><p id="error">最近一次错误：${lastError}</p><p id="logPath">日志文件：${logPath}</p><p id="workspace">当前 Workspace：${escape(vscode.workspace.name || '未打开文件夹')}</p><p id="project">当前项目：同步中</p><p id="task">当前任务：${escape(this.state.label())}</p><p id="started">开始时间：-</p><p id="duration">已工作时长：-</p><p id="status">任务状态：-</p><hr><p id="eventCount">已记录事件：0</p><p id="latestEvent">最近事件：-</p><p id="latestEventTime">最近事件时间：-</p><p id="pendingEvents">待发送事件：0</p><button id="showRecentEvents" disabled>查看最近事件</button><button id="refreshEvents" disabled>刷新事件</button><hr><button id="showLogs">查看日志</button><button id="startServer">启动后端</button><button id="restartServer">重启后端</button><button id="start" disabled>开始任务</button><button id="end" disabled>结束任务</button><button id="refresh" disabled>刷新状态</button><button id="note" disabled>添加备注</button><script>const vscode=acquireVsCodeApi();const send=type=>vscode.postMessage({type});['showLogs','startServer','restartServer','start','end','refresh','note','showRecentEvents','refreshEvents'].forEach(id=>document.getElementById(id).onclick=()=>send(id));window.addEventListener('message',event=>{const d=event.data;if(d.type==='backendState'){backend.textContent='后端状态：'+d.label;if(d.error)error.textContent='最近一次错误：'+d.error;const ready=d.state==='healthy';window.backendReady=ready;['start','end','refresh','note','showRecentEvents','refreshEvents'].forEach(id=>document.getElementById(id).disabled=!ready);if(ready){end.disabled=!window.taskActive;start.disabled=window.taskActive;}}if(d.type==='taskState'){window.taskActive=!!d.active;project.textContent='当前项目：'+d.project;task.textContent='当前任务：'+d.name;started.textContent='开始时间：'+d.started;duration.textContent='已工作时长：'+d.duration;status.textContent='任务状态：'+d.status;const ready=window.backendReady===true;end.disabled=!ready||!d.active;start.disabled=!ready||d.active;}if(d.type==='eventState'){eventCount.textContent='已记录事件：'+d.total;latestEvent.textContent='最近事件：'+d.latest;latestEventTime.textContent='最近事件时间：'+d.latestTime;pendingEvents.textContent='待发送事件：'+d.pending;}});</script>`;
     const publishTaskState = () => { const task = this.state.task; const project = task ? this.controller.availableProjects.find(item => item.id === task.project_id) : undefined; void view.webview.postMessage({ type: 'taskState', name: task?.name || '暂无活动任务', project: project?.name || '-', started: task ? new Date(task.started_at).toLocaleString() : '-', duration: task?.status === 'active' ? TaskState.formatDuration(this.state.elapsedSeconds()) : TaskState.formatDuration(task?.duration_seconds || 0), status: task?.status === 'active' ? '进行中' : task?.status || '-', active: task?.status === 'active' }); };
-    publishTaskState();
+    const publishEvents = async () => { const task = this.state.task; const api = this.server.api; if (!task || !api) { await view.webview.postMessage({ type: 'eventState', total: 0, latest: '-', latestTime: '-', pending: this.events.pendingCount }); return; } try { const [summary, recent] = await Promise.all([api.eventSummary(task.id), api.listEvents(task.id, 20)]); const latest = recent.items[recent.items.length - 1]; await view.webview.postMessage({ type: 'eventState', total: summary.total, latest: latest ? eventLabel(latest) : '-', latestTime: summary.latest_event_at ? new Date(summary.latest_event_at).toLocaleString() : '-', pending: this.events.pendingCount }); } catch { await view.webview.postMessage({ type: 'eventState', total: 0, latest: '读取失败', latestTime: '-', pending: this.events.pendingCount }); } };
+    publishTaskState(); void publishEvents();
     const timer = setInterval(publishTaskState, 1000);
     const taskSubscription = this.state.onDidChange(publishTaskState);
-    const taskStateSubscription = this.server.onDidChangeState(change => { if (change.state === 'healthy') publishTaskState(); });
+    const taskStateSubscription = this.server.onDidChangeState(change => { if (change.state === 'healthy') { publishTaskState(); void publishEvents(); } });
     const stateSubscription = this.server.onDidChangeState(change => { void view.webview.postMessage({ type: 'backendState', state: change.state, label: backendStateLabel(change.state), error: change.error }); });
     this.context.subscriptions.push(stateSubscription);
     view.onDidDispose(() => { stateSubscription.dispose(); taskStateSubscription.dispose(); taskSubscription.dispose(); clearInterval(timer); });
     if (this.server.api) void this.controller.synchronize(this.server.api).then(publishTaskState).catch(() => undefined);
     view.webview.onDidReceiveMessage(async message => {
       try {
-        if (message.type === 'start') await startTask(this.context, this.state, this.server, this.controller, undefined);
-        if (message.type === 'end') await endTask(this.context, this.state, this.server, this.controller, undefined);
+        if (message.type === 'start') await startTask(this.context, this.state, this.server, this.controller, this.events);
+        if (message.type === 'end') await endTask(this.context, this.state, this.server, this.controller, this.events);
         if (message.type === 'refresh') await refreshTask(this.state, this.server, this.controller);
         if (message.type === 'note') await addNote(this.state, this.server);
+        if (message.type === 'refreshEvents') await publishEvents();
+        if (message.type === 'showRecentEvents') await showRecentEvents(this.state, this.server);
         if (message.type === 'startServer') await ensureServer(this.server);
         if (message.type === 'restartServer') await this.server.restart();
         if (message.type === 'showLogs') await vscode.commands.executeCommand('aiWorklog.showLogs');
@@ -38,6 +42,10 @@ class Provider implements vscode.WebviewViewProvider {
     });
   }
 }
+
+function eventLabel(event: WorklogEvent): string { return event.filePath || event.eventType.replaceAll('_', ' '); }
+async function showRecentEvents(state: TaskState, server: ServerManager): Promise<void> { if (!state.task || !server.api) return; const response = await server.api.listEvents(state.task.id, 20); const items = response.items.map(event => ({ label: `${new Date(event.occurredAt).toLocaleTimeString()}  ${eventLabel(event)}`, description: event.eventType, detail: summarizeEvent(event), event })); const selected = await vscode.window.showQuickPick(items, { title: '最近事件', matchOnDescription: true }); if (selected) await vscode.window.showInformationMessage(selected.detail || selected.description); }
+function summarizeEvent(event: WorklogEvent): string { const payload = event.payload; if (event.eventType === 'manual_note' && typeof payload.text === 'string') return payload.text.slice(0, 4000); if (event.filePath) return event.filePath; const name = payload.name; return typeof name === 'string' ? name : event.eventType; }
 
 async function ensureServer(server: ServerManager) { try { return await server.start(); } catch (error) { vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); throw error; } }
 async function startTask(_context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController, events?: EventCaptureController): Promise<void> {
@@ -100,10 +108,9 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.showLogs', () => output.show(true)));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.openReview', () => vscode.window.showInformationMessage('审核页面将在结束任务后打开')));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.searchKnowledge', () => vscode.window.showInformationMessage('知识库搜索入口已预留')));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', new Provider(context, state, server, controller)));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', new Provider(context, state, server, controller, events)));
     context.subscriptions.push(events);
     const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left); status.text = '$(pencil) Worklog'; status.command = 'aiWorklog.startTask'; status.show(); context.subscriptions.push(status);
-    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => { if (state.task && server.api) server.api.addEvent({ projectId: state.task.project_id, taskId: state.task.id, type: 'file_saved', timestamp: new Date().toISOString(), payload: { file: document.uri.fsPath } }).catch(() => undefined); }));
     context.subscriptions.push({ dispose: () => { void events.flush(); void server.stop(); } });
   } catch (error) {
     logger.appendLine(`[activation-error] ${error instanceof Error ? error.message : String(error)}`);

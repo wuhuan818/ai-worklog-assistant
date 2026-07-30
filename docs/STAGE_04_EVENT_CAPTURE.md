@@ -12,4 +12,4 @@ API：
 - `GET /tasks/{task_id}/events?limit=&offset=&event_type=`
 - `GET /tasks/{task_id}/events/summary`
 
-自动测试覆盖后端迁移、事务、幂等、过滤、摘要和活动任务约束，以及扩展编译、API 类型和缓冲核心逻辑。最终人工验收：仓库根目录按 F5（Extension Development Host 会自动启动，无需再次选择配置），开始任务后修改并保存文件、制造并修复一个 Diagnostics、运行 Task、启动/停止 Debug、添加备注、刷新并查看最近事件，重启后端确认历史仍在，最后结束任务。
+侧边栏显示已记录事件、最近事件、最近时间和待发送数量，并提供“查看最近事件”“刷新事件”；事件详情通过 QuickPick 展示短摘要，不显示完整 Diff。自动测试覆盖后端迁移、事务、幂等、过滤、摘要和活动任务约束，以及扩展编译、API 类型、缓冲核心逻辑和事件源注册契约。最终人工验收：仓库根目录按 F5（Extension Development Host 会自动启动，无需再次选择配置），开始任务后修改并保存文件、制造并修复一个 Diagnostics、运行 Task、启动/停止 Debug、添加备注、刷新并查看最近事件，重启后端确认历史仍在，最后结束任务。

@@ -21,6 +21,7 @@ export class EventCaptureController implements vscode.Disposable {
   }
   private emit(type: WorklogEventType, uri: vscode.Uri | undefined, payload: Record<string, unknown>): void { const task = this.state.task; if (!task || !this.api()) return; const file = uri ? relativeFilePath(uri) : {}; if (uri && !file.filePath) return; const event: BufferedEvent = { client_event_id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, event_type: type, source: 'vscode', taskId: task.id, occurred_at: new Date().toISOString(), ...file, payload: safePayload(payload) }; this.buffer.add(event); }
   async flush(): Promise<void> { await this.buffer.flush(); }
+  get pendingCount(): number { return this.buffer.size; }
   record(type: WorklogEventType, payload: Record<string, unknown> = {}): void { this.emit(type, undefined, payload); }
   dispose(): void { this.subscriptions.forEach(s => s.dispose()); void this.buffer.dispose(); }
 }
