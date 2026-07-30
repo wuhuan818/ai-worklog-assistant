@@ -2,7 +2,7 @@
 
 阶段 3 最小验收：F5 → 等待后端“正常” → 选择/创建项目 → 输入任务信息并开始 → 等待约 10 秒 → 点击“重启后端” → 确认任务和开始时间不变且计时继续 → 结束任务确认状态、结束时间和时长 → 重开 Extension Development Host，确认无活动任务且历史仍在 SQLite。其余阶段 2 项目按需回归。
 
-说明：每一步都记录操作、预期结果、截图位置和失败时的日志位置。截图只在人工执行时产生；本版本不把未运行 VS Code 的能力标记为自动通过。
+说明：后端、SQLite、任务恢复和进程树已由自动化真实 EXE 脚本连续三轮验证；以下清单仅覆盖 VS Code Extension Development Host 的最终界面验收，不重复承担后端排错。
 
 1. **从仓库根目录启动扩展调试**
    - 操作：从仓库根目录 `AIInnovationCompetition 2` 打开 VS Code，按 F5，在调试配置中选择 `Run AI Worklog Extension`。
