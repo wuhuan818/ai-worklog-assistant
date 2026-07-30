@@ -14,17 +14,14 @@ function Assert-Pass([string]$name, [bool]$condition, [string]$detail = '') {
 }
 
 function Start-Backend {
+  $env:WORKLOG_DATA_DIR = $dataDir
+  $env:WORKLOG_SESSION_TOKEN = $token
+  $env:WORKLOG_PORT = [string]$port
   $info = [Diagnostics.ProcessStartInfo]::new()
   $info.FileName = $exe
   $info.WorkingDirectory = Split-Path -Parent $exe
   $info.UseShellExecute = $false
   $info.CreateNoWindow = $true
-  $info.RedirectStandardOutput = $true
-  $info.RedirectStandardError = $true
-  foreach ($entry in [System.Environment]::GetEnvironmentVariables().GetEnumerator()) { $info.EnvironmentVariables[$entry.Key] = [string]$entry.Value }
-  $env:WORKLOG_DATA_DIR = $dataDir
-  $env:WORKLOG_SESSION_TOKEN = $token
-  $env:WORKLOG_PORT = [string]$port
   $started = [Diagnostics.Process]::new()
   $started.StartInfo = $info
   if (-not $started.Start()) { throw 'unable to start backend executable' }
@@ -74,7 +71,7 @@ try {
   Assert-Pass 'START' (-not $process.HasExited) "PID $($process.Id)"
   Assert-Pass 'HEALTH_FIRST_START' (Wait-Healthy)
   $unauthorized = $false
-  try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/projects" -TimeoutSec 2 | Out-Null } catch { $unauthorized = $_.Exception.Response.StatusCode.value__ -eq 401 }
+  try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/projects" -TimeoutSec 2 | Out-Null } catch { $response = $_.Exception.Response; $unauthorized = $null -ne $response -and [int]$response.StatusCode -eq 401 }
   Assert-Pass 'TOKEN_REJECTION' $unauthorized
   $authorized = Invoke-WebRequest -UseBasicParsing -Headers @{ Authorization = "Bearer $token" } -Uri "http://127.0.0.1:$port/projects" -TimeoutSec 2
   Assert-Pass 'TOKEN_ACCEPTANCE' ($authorized.StatusCode -eq 200)

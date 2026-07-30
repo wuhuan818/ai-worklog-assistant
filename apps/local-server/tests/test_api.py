@@ -139,3 +139,25 @@ def test_restart_reads_same_sqlite_state(client, headers, tmp_path):
     restarted = TestClient(app)
     recovered = restarted.get('/tasks/active', headers=headers).json()
     assert recovered['id'] == task['id'] and recovered['started_at'] == task['started_at']
+
+
+def test_active_task_empty_and_cross_user_task_is_hidden(client, headers):
+    assert client.get('/tasks/active', headers=headers).status_code == 200
+    assert client.get('/tasks/active', headers=headers).json() is None
+    assert client.get('/tasks/missing', headers=headers).status_code == 404
+
+
+def test_concurrent_starts_allow_only_one_active_task(client, headers):
+    project = client.post('/projects', headers=headers, json={'name': 'Concurrent'}).json()
+    results = []
+
+    def start(name):
+        results.append(client.post('/tasks', headers=headers, json={'name': name, 'project_id': project['id']}))
+
+    threads = [threading.Thread(target=start, args=(f'Task {index}',)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(response.status_code for response in results) == [200, 409]
+    assert client.get('/tasks/active', headers=headers).json()['status'] == 'active'

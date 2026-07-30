@@ -16,6 +16,9 @@ PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
 
 def now() -> str: return datetime.now(timezone.utc).isoformat()
+def normalize_workspace(value: Optional[str]) -> str:
+    if not value: return ''
+    return os.path.normcase(os.path.normpath(value.strip()))
 def db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None); c.row_factory = sqlite3.Row
@@ -34,6 +37,7 @@ def db():
         if column not in columns: c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {declaration}')
     add_column('projects', 'workspace_path', 'TEXT')
     add_column('projects', 'normalized_name', 'TEXT')
+    add_column('projects', 'workspace_key', 'TEXT')
     add_column('projects', 'created_at', 'TEXT')
     add_column('projects', 'updated_at', 'TEXT')
     add_column('tasks', 'duration_seconds', 'INTEGER')
@@ -41,9 +45,10 @@ def db():
     add_column('tasks', 'updated_at', 'TEXT')
     timestamp = now()
     c.execute("UPDATE projects SET normalized_name=lower(trim(name)) WHERE normalized_name IS NULL")
+    c.execute("UPDATE projects SET workspace_key=lower(trim(workspace_path)) WHERE workspace_key IS NULL")
     c.execute("UPDATE projects SET created_at=COALESCE(created_at, ?), updated_at=COALESCE(updated_at, created_at, ?) ", (timestamp, timestamp))
     c.execute("UPDATE tasks SET created_at=COALESCE(created_at, started_at, ?), updated_at=COALESCE(updated_at, ended_at, started_at, ?) ", (timestamp, timestamp))
-    c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user_name_workspace ON projects(user_id, normalized_name, COALESCE(workspace_path, \'\'))')
+    c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user_name_workspace ON projects(user_id, normalized_name, COALESCE(workspace_key, \'\'))')
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_tasks_one_active ON tasks(user_id) WHERE status=\'active\'')
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); return c
 def auth(authorization: Optional[str]):
@@ -68,12 +73,13 @@ def create_project(x: ProjectIn, authorization: Optional[str]=Header(None)):
     auth(authorization); name=x.name.strip()
     if not name: raise HTTPException(422, 'Project name is required')
     workspace = x.workspace_path.strip() if x.workspace_path else None
-    normalized = name.casefold(); c=db(); existing=c.execute('SELECT * FROM projects WHERE user_id=? AND normalized_name=? AND COALESCE(workspace_path, \'\')=COALESCE(?, \'\')', ('local-user', normalized, workspace)).fetchone()
+    workspace_key = normalize_workspace(workspace)
+    normalized = name.casefold(); c=db(); existing=c.execute('SELECT * FROM projects WHERE user_id=? AND normalized_name=? AND COALESCE(workspace_key, \'\')=?', ('local-user', normalized, workspace_key)).fetchone()
     if existing: return dict(existing)
     pid=str(uuid.uuid4()); slug=re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-') or pid[:8]
     if c.execute('SELECT 1 FROM projects WHERE slug=?', (slug,)).fetchone(): slug=f'{slug}-{pid[:8]}'
     timestamp=now()
-    try: c.execute('INSERT INTO projects(id,user_id,name,slug,workspace_path,normalized_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',(pid,'local-user',name,slug,workspace,normalized,timestamp,timestamp))
+    try: c.execute('INSERT INTO projects(id,user_id,name,slug,workspace_path,workspace_key,normalized_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',(pid,'local-user',name,slug,workspace,workspace_key,normalized,timestamp,timestamp))
     except sqlite3.IntegrityError: raise HTTPException(409, 'Project already exists')
     return dict(c.execute('SELECT * FROM projects WHERE id=?',(pid,)).fetchone())
 
@@ -110,7 +116,7 @@ def create_task(x: TaskIn, authorization: Optional[str]=Header(None)):
     return task(tid,authorization)
 @app.get('/tasks/{task_id}')
 def task(task_id: str, authorization: Optional[str]=Header(None)):
-    auth(authorization); r=db().execute('SELECT * FROM tasks WHERE id=?',(task_id,)).fetchone();
+    auth(authorization); r=db().execute('SELECT * FROM tasks WHERE id=? AND user_id=?',(task_id,'local-user')).fetchone();
     if not r: raise HTTPException(404,'Task not found')
     return task_output(r)
 @app.post('/tasks/{task_id}/end')
