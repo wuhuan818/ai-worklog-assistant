@@ -7,3 +7,4 @@
 - 阶段 3 结束任务采用非幂等 HTTP 409：重复结束明确提示任务已结束，避免把重复点击误认为新的结束时间。
 - 阶段 3 使用 SQLite 迁移补列、`BEGIN IMMEDIATE` 和活动状态部分唯一索引保证单活动任务；项目同名同 Workspace 创建幂等。
 - 首版将 VS Code 保存事件作为稳定的修改粒度；Shell Integration 和复杂 Debug 输出降级为后续能力。
+阶段 4：事件单独使用 `worklog_events` 表，保留旧 `events` 接口兼容上一阶段；扩展只做有界内存缓冲，后端 SQLite 是最终数据源。

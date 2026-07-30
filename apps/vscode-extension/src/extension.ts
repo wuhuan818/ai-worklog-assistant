@@ -5,6 +5,7 @@ import { DiagnosticLogger } from './diagnosticLogger';
 import { ServerManager } from './serverManager';
 import { TaskState } from './taskState';
 import { TaskLifecycleController } from './taskLifecycleController';
+import { EventCaptureController } from './eventCapture/eventCaptureController';
 
 class Provider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly server: ServerManager, private readonly controller: TaskLifecycleController) {}
@@ -26,8 +27,8 @@ class Provider implements vscode.WebviewViewProvider {
     if (this.server.api) void this.controller.synchronize(this.server.api).then(publishTaskState).catch(() => undefined);
     view.webview.onDidReceiveMessage(async message => {
       try {
-        if (message.type === 'start') await startTask(this.context, this.state, this.server, this.controller);
-        if (message.type === 'end') await endTask(this.context, this.state, this.server, this.controller);
+        if (message.type === 'start') await startTask(this.context, this.state, this.server, this.controller, undefined);
+        if (message.type === 'end') await endTask(this.context, this.state, this.server, this.controller, undefined);
         if (message.type === 'refresh') await refreshTask(this.state, this.server, this.controller);
         if (message.type === 'note') await addNote(this.state, this.server);
         if (message.type === 'startServer') await ensureServer(this.server);
@@ -39,7 +40,7 @@ class Provider implements vscode.WebviewViewProvider {
 }
 
 async function ensureServer(server: ServerManager) { try { return await server.start(); } catch (error) { vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); throw error; } }
-async function startTask(_context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController): Promise<void> {
+async function startTask(_context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController, events?: EventCaptureController): Promise<void> {
   const name = await vscode.window.showInputBox({ prompt: '任务名称（必填）' }); if (!name?.trim()) return;
   const api = await ensureServer(server); const active=await api.activeTask(); if(active){ vscode.window.showWarningMessage(`已有活动任务：${active.name}`); state.setTask(active); return; }
   const projects=await api.listProjects(); const currentName=vscode.workspace.name||'未命名项目'; const currentPath=vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -48,11 +49,13 @@ async function startTask(_context: vscode.ExtensionContext, state: TaskState, se
   let project=selected.item; if(!project) project=await api.createProject({name:currentName,workspace_path:currentPath});
   const description=await vscode.window.showInputBox({prompt:'任务描述（可选）'})||''; const requirement_id=await vscode.window.showInputBox({prompt:'需求编号（可选）'})||''; const rawTags=await vscode.window.showInputBox({prompt:'标签（可选，逗号分隔）'})||'';
   const task=controller ? await controller.start(api,{name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}) : await api.createTask({name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}); state.setTask(task);
-  await api.addEvent({ projectId: task.project_id, taskId: task.id, type: 'task_started', timestamp: new Date().toISOString(), payload: { name: task.name } });
+  events?.record('vscode_task_started', { name: task.name, source: 'ai-worklog' });
   vscode.window.showInformationMessage(`已开始记录：${name}`);
 }
-async function endTask(context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController): Promise<void> {
+async function endTask(context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController, events?: EventCaptureController): Promise<void> {
   if (!state.task) { vscode.window.showWarningMessage('当前没有活动任务'); return; }
+  events?.record('vscode_task_ended', { name: state.task.name });
+  await events?.flush();
   const api = await ensureServer(server); const task = controller ? await controller.end(api) : await api.endTask(state.task.id); state.setTask(task);
   vscode.window.showInformationMessage(`任务已结束，工作时长：${TaskState.formatDuration(task.duration_seconds || 0)}`);
 }
@@ -66,7 +69,7 @@ async function resolveBug(server: ServerManager): Promise<void> {
 }
 async function addNote(state: TaskState, server: ServerManager): Promise<void> {
   if (!state.task) { vscode.window.showWarningMessage('当前没有活动任务'); return; }
-  const note = await vscode.window.showInputBox({ prompt: '备注' }); if (!note) return; await (await ensureServer(server)).addEvent({ projectId: state.task.project_id, taskId: state.task.id, type: 'manual_note', timestamp: new Date().toISOString(), payload: { note } });
+  const note = await vscode.window.showInputBox({ prompt: '备注', validateInput: value => value.trim().length > 4000 ? '备注最多 4000 个字符' : undefined }); if (!note?.trim()) return; await (await ensureServer(server)).batchEvents(state.task.id, [{ client_event_id: `${Date.now()}-manual`, event_type: 'manual_note', source: 'vscode', occurred_at: new Date().toISOString(), payload: { text: note.trim() } }]); vscode.window.showInformationMessage('备注已记录');
 }
 
 let activeServer: ServerManager | undefined;
@@ -83,13 +86,13 @@ export function activate(context: vscode.ExtensionContext): void {
   logger.appendLine(`extensionPath=${context.extensionPath}`);
   logger.appendLine(`workspace=${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '(none)'}`);
   try {
-    const state = new TaskState(); const controller = new TaskLifecycleController(state, () => undefined, message => logger.appendLine(`[task] ${message}`)); const server = new ServerManager(context, logger, logPath);
+    const state = new TaskState(); const controller = new TaskLifecycleController(state, () => undefined, message => logger.appendLine(`[task] ${message}`)); const server = new ServerManager(context, logger, logPath); const events = new EventCaptureController(state, () => server.api, message => logger.appendLine(`[events] ${message}`));
     activeServer = server;
     const run = (fn: () => Promise<void>) => fn().catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
     const sync = () => server.api ? refreshTask(state, server, controller).catch(error => logger.appendLine(`[task-sync-error] ${error instanceof Error ? error.message : String(error)}`)) : Promise.resolve();
     context.subscriptions.push(server.onDidChangeState(change => { if (change.state === 'healthy') void sync(); }));
-    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.startTask', () => run(() => startTask(context, state, server, controller))));
-    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.endTask', () => run(() => endTask(context, state, server, controller))));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.startTask', () => run(() => startTask(context, state, server, controller, events))));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.endTask', () => run(() => endTask(context, state, server, controller, events))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.createBug', () => run(() => createBug(state, server))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.resolveBug', () => run(() => resolveBug(server))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.addNote', () => run(() => addNote(state, server))));
@@ -98,9 +101,10 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.openReview', () => vscode.window.showInformationMessage('审核页面将在结束任务后打开')));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.searchKnowledge', () => vscode.window.showInformationMessage('知识库搜索入口已预留')));
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', new Provider(context, state, server, controller)));
+    context.subscriptions.push(events);
     const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left); status.text = '$(pencil) Worklog'; status.command = 'aiWorklog.startTask'; status.show(); context.subscriptions.push(status);
     context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => { if (state.task && server.api) server.api.addEvent({ projectId: state.task.project_id, taskId: state.task.id, type: 'file_saved', timestamp: new Date().toISOString(), payload: { file: document.uri.fsPath } }).catch(() => undefined); }));
-    context.subscriptions.push({ dispose: () => { void server.stop(); } });
+    context.subscriptions.push({ dispose: () => { void events.flush(); void server.stop(); } });
   } catch (error) {
     logger.appendLine(`[activation-error] ${error instanceof Error ? error.message : String(error)}`);
     vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));

@@ -10,3 +10,4 @@
 - 阶段 3 当前仅允许单个活动任务；重复结束返回 409，项目重复创建在同名同 Workspace 时幂等。
 - 真实集成脚本依赖 Windows 可执行文件和 PowerShell；脚本已使用有界 deadline、PID 基线和 finally 清理，不应直接复用为用户进程管理工具。
 - 已解决：全新 Workspace 无活动任务时的 `Task not found` 同步误报；活动任务接口现返回稳定 `{task:null}` 空结果，F5 预启动会同步最新后端。
+阶段 4 的事件缓冲仅存在于扩展进程内；异常退出可能丢失尚未发送的事件。终端命令/输出、完整 Diff、Debug 变量和 Task 输出不采集。真实 VS Code Task/Debug 的完整自动触发依赖测试 Workspace，核心采集器通过可注入/公开 API 契约验证。

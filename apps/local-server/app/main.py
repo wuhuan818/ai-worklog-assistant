@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 ROOT = Path(__file__).resolve().parents[3]
 USER_DATA_DIR = Path(os.getenv('WORKLOG_DATA_DIR', Path.home() / 'AppData' / 'Local' / 'AIWorklogAssistant'))
@@ -29,6 +29,7 @@ def db():
       CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,name TEXT,description TEXT,requirement_id TEXT,tags TEXT,status TEXT,started_at TEXT,ended_at TEXT);
       CREATE TABLE IF NOT EXISTS bugs(id TEXT PRIMARY KEY,user_id TEXT,task_id TEXT,title TEXT,status TEXT,created_at TEXT,resolved_at TEXT,notes TEXT,root_cause TEXT,solution TEXT);
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,task_id TEXT,bug_id TEXT,type TEXT,timestamp TEXT,payload TEXT,sensitivity TEXT);
+      CREATE TABLE IF NOT EXISTS worklog_events(id TEXT PRIMARY KEY,client_event_id TEXT NOT NULL UNIQUE,user_id TEXT NOT NULL,task_id TEXT NOT NULL,event_type TEXT NOT NULL,source TEXT NOT NULL,workspace_path TEXT,file_path TEXT,occurred_at TEXT NOT NULL,created_at TEXT NOT NULL,sequence INTEGER NOT NULL,payload_json TEXT NOT NULL,FOREIGN KEY(task_id) REFERENCES tasks(id));
       CREATE TABLE IF NOT EXISTS summary_drafts(id TEXT PRIMARY KEY,task_id TEXT,status TEXT,content TEXT,created_at TEXT,updated_at TEXT);
       CREATE TABLE IF NOT EXISTS knowledge_entries(id TEXT PRIMARY KEY,task_id TEXT,type TEXT,title TEXT,content TEXT,source_file TEXT);
     ''')
@@ -50,6 +51,7 @@ def db():
     c.execute("UPDATE tasks SET created_at=COALESCE(created_at, started_at, ?), updated_at=COALESCE(updated_at, ended_at, started_at, ?) ", (timestamp, timestamp))
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user_name_workspace ON projects(user_id, normalized_name, COALESCE(workspace_key, \'\'))')
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_tasks_one_active ON tasks(user_id) WHERE status=\'active\'')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_worklog_events_task_sequence ON worklog_events(task_id, sequence, occurred_at, id)')
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); return c
 def auth(authorization: Optional[str]):
     if authorization != f'Bearer {TOKEN}': raise HTTPException(401, 'Invalid session token')
@@ -57,6 +59,27 @@ class ProjectIn(BaseModel): name: str = Field(min_length=1); workspace_path: Opt
 class TaskIn(BaseModel): name: str; project: Optional[str] = None; project_id: Optional[str] = None; description: str = ''; requirement_id: str = ''; tags: List[str] = []
 class BugIn(BaseModel): title: str
 class EventIn(BaseModel): userId: str='local-user'; projectId: str; taskId: str; bugId: Optional[str]=None; source: str='vscode'; type: str; timestamp: str; payload: Dict[str,Any]={}; sensitivity: str='normal'
+EVENT_TYPES = {'file_changed','file_saved','diagnostics_changed','vscode_task_started','vscode_task_process_started','vscode_task_process_ended','vscode_task_ended','debug_session_started','debug_session_terminated','debug_active_session_changed','manual_note'}
+class CapturedEvent(BaseModel):
+    client_event_id: str = Field(min_length=1, max_length=200)
+    event_type: str
+    source: str = 'vscode'
+    workspace_path: Optional[str] = None
+    file_path: Optional[str] = None
+    occurred_at: str
+    payload: Dict[str, Any] = {}
+    @validator('occurred_at')
+    def valid_time(cls, value):
+        try:
+            normalized = re.sub(r'(\.\d{6})\d+(?=(Z|[+-]\d\d:\d\d)$)', r'\1', value).replace('Z', '+00:00')
+            datetime.fromisoformat(normalized)
+        except ValueError: raise ValueError('occurred_at must be ISO 8601')
+        return value
+    @validator('event_type')
+    def valid_type(cls, value):
+        if value not in EVENT_TYPES: raise ValueError('unsupported event_type')
+        return value
+class EventBatch(BaseModel): events: List[CapturedEvent]
 class SummaryIn(BaseModel): content: Dict[str,Any]
 class SessionIn(BaseModel): token: str; model: Optional[str]=None; base_url: Optional[str]=None; api_key: Optional[str]=None
 
@@ -131,6 +154,63 @@ def end_task(task_id: str, authorization: Optional[str]=Header(None)):
     except Exception:
         c.rollback(); raise
     return task(task_id,authorization)
+def event_task(task_id: str, c: sqlite3.Connection):
+    row = c.execute('SELECT * FROM tasks WHERE id=? AND user_id=?', (task_id, 'local-user')).fetchone()
+    if not row: raise HTTPException(404, 'Task not found')
+    if row['status'] != 'active': raise HTTPException(409, '任务已结束，不能写入事件')
+    return row
+
+def event_output(row: sqlite3.Row) -> dict:
+    out = dict(row); out['payload'] = json.loads(out.pop('payload_json')); out['clientEventId'] = out.pop('client_event_id'); out['eventType'] = out.pop('event_type'); out['occurredAt'] = out.pop('occurred_at'); out['createdAt'] = out.pop('created_at'); out['workspacePath'] = out.pop('workspace_path'); out['filePath'] = out.pop('file_path'); out['sequence'] = int(out['sequence']); return out
+
+@app.post('/tasks/{task_id}/events/batch')
+def batch_events(task_id: str, batch: EventBatch, authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    if not batch.events: raise HTTPException(400, 'events must not be empty')
+    if len(batch.events) > 100: raise HTTPException(400, 'maximum 100 events per batch')
+    c = db(); event_task(task_id, c); inserted = 0; duplicates = 0; ids = []
+    c.execute('BEGIN IMMEDIATE')
+    try:
+        for event in batch.events:
+            payload = filter_sensitive(event.payload)
+            payload_json = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+            if len(payload_json.encode('utf-8')) > 262144: raise HTTPException(400, 'event payload exceeds 256 KB')
+            existing = c.execute('SELECT id FROM worklog_events WHERE client_event_id=?', (event.client_event_id,)).fetchone()
+            if existing: duplicates += 1; ids.append(existing['id']); continue
+            sequence = c.execute('SELECT COALESCE(MAX(sequence),0)+1 FROM worklog_events WHERE task_id=?', (task_id,)).fetchone()[0]
+            eid = str(uuid.uuid4()); created = now()
+            c.execute('INSERT INTO worklog_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', (eid,event.client_event_id,'local-user',task_id,event.event_type,event.source,event.workspace_path,event.file_path,event.occurred_at,created,sequence,payload_json))
+            inserted += 1; ids.append(eid)
+        c.commit()
+    except Exception:
+        c.rollback(); raise
+    return {'inserted': inserted, 'duplicates': duplicates, 'event_ids': ids}
+
+@app.get('/tasks/{task_id}/events')
+def captured_events(task_id: str, limit: int=100, offset: int=0, event_type: Optional[str]=None, authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    if limit < 1 or limit > 500: raise HTTPException(400, 'limit must be between 1 and 500')
+    if offset < 0: raise HTTPException(400, 'offset must be non-negative')
+    c=db(); row=c.execute('SELECT id FROM tasks WHERE id=? AND user_id=?',(task_id,'local-user')).fetchone()
+    if not row: raise HTTPException(404,'Task not found')
+    where='task_id=?'; params=[task_id]
+    if event_type: where += ' AND event_type=?'; params.append(event_type)
+    total=c.execute(f'SELECT COUNT(*) FROM worklog_events WHERE {where}',params).fetchone()[0]
+    rows=c.execute(f'SELECT * FROM worklog_events WHERE {where} ORDER BY sequence ASC, occurred_at ASC, id ASC LIMIT ? OFFSET ?',params+[limit,offset]).fetchall()
+    if not rows and total == 0:
+        legacy = c.execute('SELECT * FROM events WHERE task_id=? ORDER BY timestamp', (task_id,)).fetchall()
+        if legacy:
+            return [dict(dict(r), payload=json.loads(r['payload'])) for r in legacy]
+    return {'items':[event_output(r) for r in rows], 'total':total, 'limit':limit, 'offset':offset}
+
+@app.get('/tasks/{task_id}/events/summary')
+def captured_event_summary(task_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db()
+    if not c.execute('SELECT id FROM tasks WHERE id=? AND user_id=?',(task_id,'local-user')).fetchone(): raise HTTPException(404,'Task not found')
+    rows=c.execute('SELECT event_type, COUNT(*) AS count, MAX(occurred_at) AS latest FROM worklog_events WHERE task_id=? GROUP BY event_type',(task_id,)).fetchall()
+    latest=c.execute('SELECT occurred_at FROM worklog_events WHERE task_id=? ORDER BY sequence DESC LIMIT 1',(task_id,)).fetchone()
+    return {'total':sum(r['count'] for r in rows), 'by_type':{r['event_type']:r['count'] for r in rows}, 'latest_event_at':latest['occurred_at'] if latest else None}
+
 @app.get('/tasks/{task_id}/events')
 def events(task_id: str, authorization: Optional[str]=Header(None)):
     auth(authorization); return [dict(dict(r), payload=json.loads(r['payload'])) for r in db().execute('SELECT * FROM events WHERE task_id=? ORDER BY timestamp',(task_id,))]
