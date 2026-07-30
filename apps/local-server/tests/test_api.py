@@ -114,12 +114,12 @@ def test_task_lifecycle_active_end_duration_and_persistence(client, headers, tmp
     project = client.post('/projects', headers=headers, json={'name': 'Persistent'}).json()
     started = client.post('/tasks', headers=headers, json={'name': 'Lifecycle', 'project_id': project['id'], 'tags': [' ui ', 'UI', 'backend']}).json()
     assert started['status'] == 'active' and started['tags'] == ['ui', 'backend']
-    assert client.get('/tasks/active', headers=headers).json()['id'] == started['id']
+    assert client.get('/tasks/active', headers=headers).json()['task']['id'] == started['id']
     assert client.get('/tasks/%s' % started['id'], headers=headers).json()['id'] == started['id']
     time.sleep(1.1)
     ended = client.post('/tasks/%s/end' % started['id'], headers=headers).json()
     assert ended['status'] == 'completed' and ended['ended_at'] and ended['duration_seconds'] >= 1
-    assert client.get('/tasks/active', headers=headers).json() is None
+    assert client.get('/tasks/active', headers=headers).json() == {'task': None}
     assert client.post('/tasks/%s/end' % started['id'], headers=headers).status_code == 409
     assert sqlite3.connect(main.DB_PATH).execute('SELECT COUNT(*) FROM projects').fetchone()[0] == 1
     assert sqlite3.connect(main.DB_PATH).execute('SELECT status,duration_seconds FROM tasks').fetchone()[0:2] == ('completed', 1)
@@ -138,12 +138,12 @@ def test_restart_reads_same_sqlite_state(client, headers, tmp_path):
     main.DB_PATH = db_path
     restarted = TestClient(app)
     recovered = restarted.get('/tasks/active', headers=headers).json()
-    assert recovered['id'] == task['id'] and recovered['started_at'] == task['started_at']
+    assert recovered['task']['id'] == task['id'] and recovered['task']['started_at'] == task['started_at']
 
 
 def test_active_task_empty_and_cross_user_task_is_hidden(client, headers):
     assert client.get('/tasks/active', headers=headers).status_code == 200
-    assert client.get('/tasks/active', headers=headers).json() is None
+    assert client.get('/tasks/active', headers=headers).json() == {'task': None}
     assert client.get('/tasks/missing', headers=headers).status_code == 404
 
 
@@ -160,4 +160,4 @@ def test_concurrent_starts_allow_only_one_active_task(client, headers):
     for thread in threads:
         thread.join()
     assert sorted(response.status_code for response in results) == [200, 409]
-    assert client.get('/tasks/active', headers=headers).json()['status'] == 'active'
+    assert client.get('/tasks/active', headers=headers).json()['task']['status'] == 'active'

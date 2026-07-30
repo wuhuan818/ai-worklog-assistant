@@ -19,3 +19,13 @@ test('ApiClient reports HTTP and transport failures', async () => {
   const offline: HttpTransport = { fetch: async () => { throw new Error('offline'); } };
   await assert.rejects(() => new ApiClient('http://localhost', 'bad', offline).health(), (error: ApiError) => error.status === 0 && error.message.includes('后端不可用'));
 });
+
+test('ApiClient treats an empty active task envelope as normal', async () => {
+  const transport: HttpTransport = { fetch: async () => new Response(JSON.stringify({ task: null }), { status: 200 }) };
+  assert.equal(await new ApiClient('http://localhost', 'token', transport).activeTask(), null);
+});
+
+test('ApiClient rejects an invalid active task response instead of hiding it', async () => {
+  const transport: HttpTransport = { fetch: async () => new Response(JSON.stringify(null), { status: 200 }) };
+  await assert.rejects(() => new ApiClient('http://localhost', 'token', transport).activeTask(), (error: ApiError) => error.category === 'protocol' && error.message === '活动任务响应格式无效');
+});

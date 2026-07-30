@@ -88,7 +88,7 @@ def task_output(row: sqlite3.Row) -> dict:
 
 @app.get('/tasks/active')
 def active_task(authorization: Optional[str]=Header(None)):
-    auth(authorization); c=db(); row=c.execute("SELECT * FROM tasks WHERE user_id=? AND status='active' LIMIT 1", ('local-user',)).fetchone(); return task_output(row) if row else None
+    auth(authorization); c=db(); row=c.execute("SELECT * FROM tasks WHERE user_id=? AND status='active' LIMIT 1", ('local-user',)).fetchone(); return {'task': task_output(row) if row else None}
 @app.post('/tasks')
 def create_task(x: TaskIn, authorization: Optional[str]=Header(None)):
     auth(authorization); name=x.name.strip();

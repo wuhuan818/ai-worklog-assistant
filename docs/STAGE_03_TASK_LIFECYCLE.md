@@ -8,7 +8,7 @@
 
 ## API 与恢复
 
-新增/完善 `GET /projects`、`POST /projects`、`GET /tasks/active`、`POST /tasks`、`GET /tasks/{id}`、`POST /tasks/{id}/end`，详见 [API.md](API.md)。数据库启动时以幂等迁移补列，并用活动任务部分唯一索引和 `BEGIN IMMEDIATE` 防止并发重复开始。插件激活、后端健康、重启健康、刷新时均从后端查询活动任务。
+新增/完善 `GET /projects`、`POST /projects`、`GET /tasks/active`、`POST /tasks`、`GET /tasks/{id}`、`POST /tasks/{id}/end`，详见 [API.md](API.md)。`GET /tasks/active` 始终返回 `{task: 完整任务对象或 null}`，无活动任务是 HTTP 200 正常空状态；指定任务 ID 不存在仍返回 404。数据库启动时以幂等迁移补列，并用活动任务部分唯一索引和 `BEGIN IMMEDIATE` 防止并发重复开始。插件激活、后端健康、重启健康、刷新时均从后端查询活动任务。
 
 ## 计时、测试与验收
 
@@ -23,6 +23,10 @@
 现已统一使用 `scripts/backend-process-helper.ps1`：记录根 PID、端口和进程树；所有健康/停止等待均使用 deadline；停止先针对本轮根 PID 执行 `taskkill /T /F`，再按本轮启动前的 EXE PID 基线保护无关进程，只清理新增的同路径进程；finally 始终执行有界清理。`verify-sqlite-task.py` 用于直接查询真实 SQLite。
 
 收尾验证结果：阶段 2 `verify-backend-lifecycle.ps1` 连续 3/3 PASS，单轮约 14–16 秒；阶段 3 `verify-task-lifecycle.ps1` 连续 3/3 PASS，单轮约 8–11 秒；每轮均完成重启恢复、任务结束、时长至少 3 秒、SQLite 项目/任务存在及无残留进程检查。辅助脚本 `verify-backend-process-helper.ps1` 覆盖正常停止、重复清理、路径含空格和不清理基线进程。
+
+## 人工验收空状态修复
+
+人工验收发现全新 Workspace 的 OutputChannel 出现 `[task] 项目或任务不存在` 和 `[task-sync-error] Task not found`。根因是旧 Extension Development Host 可能启动未同步的旧后端 EXE，且活动任务接口没有显式空结果契约；旧后端将 `/tasks/active` 当作任务 ID 路由并返回 404。现已统一活动任务响应格式、严格校验协议，并将 F5 预启动任务改为执行 `scripts/build-extension.ps1`，确保扩展使用当前打包后端。正常空状态只清空任务状态，不记录错误；真正的 401/404/500、连接或协议错误仍记录并转换提示。
 
 ## 未完成项
 

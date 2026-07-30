@@ -3,9 +3,9 @@
   "tasks": [
     {
       "label": "Compile AI Worklog Extension",
-      "type": "npm",
-      "script": "compile",
-      "path": "apps/vscode-extension",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/build-extension.ps1"],
       "group": {
         "kind": "build",
         "isDefault": true

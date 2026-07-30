@@ -25,17 +25,17 @@ try {
   Pass 'LIST_PROJECTS' (@($listed | Where-Object { $_.id -eq $projectId }).Count -eq 1)
   $task = Invoke-RestMethod "http://127.0.0.1:$port/tasks" -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ name='Persistence task'; project_id=$projectId } | ConvertTo-Json) -TimeoutSec 10
   $taskId = $task.id; $startedAt = $task.started_at; Pass 'START_TASK' ($task.status -eq 'active')
-  $active = Invoke-RestMethod "http://127.0.0.1:$port/tasks/active" -Headers $headers -TimeoutSec 10; Pass 'ACTIVE_TASK' ($active.id -eq $taskId)
+  $active = Invoke-RestMethod "http://127.0.0.1:$port/tasks/active" -Headers $headers -TimeoutSec 10; Pass 'ACTIVE_TASK' ($active.task.id -eq $taskId)
   Start-Sleep -Seconds 3
   Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline; $rootPid = 0
   $rootPid = Start-TestBackend -ExecutablePath $exe -DataDir $dataDir -Token $token -Port $port -Stage 'restart'
   Wait-BackendHealthy -Port $port -RootPid $rootPid -TimeoutSeconds 15 -Stage 'restart'
   $recovered = Invoke-RestMethod "http://127.0.0.1:$port/tasks/active" -Headers $headers -TimeoutSec 10
-  Pass 'TASK_RECOVERY' ($recovered.id -eq $taskId -and $recovered.started_at -eq $startedAt -and $recovered.status -eq 'active')
+  Pass 'TASK_RECOVERY' ($recovered.task.id -eq $taskId -and $recovered.task.started_at -eq $startedAt -and $recovered.task.status -eq 'active')
   $ended = Invoke-RestMethod "http://127.0.0.1:$port/tasks/$taskId/end" -Method Post -Headers $headers -TimeoutSec 10
   Pass 'END_TASK' ($ended.status -eq 'completed' -and $null -ne $ended.ended_at -and $ended.duration_seconds -ge 3)
   $emptyResponse = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/tasks/active" -Headers $headers -TimeoutSec 10
-  Pass 'NO_ACTIVE_TASK' ($emptyResponse.Content.Trim() -eq 'null')
+  Pass 'NO_ACTIVE_TASK' ($emptyResponse.Content.Trim() -match '"task"\s*:\s*null')
   $db = Join-Path $dataDir 'worklog.db'
   $check = & python (Join-Path $root 'scripts\verify-sqlite-task.py') $db
   Pass 'SQLITE_PERSISTENCE' ($check -match '^1 1')

@@ -6,6 +6,7 @@ export function friendlyTaskError(error: unknown): string {
   if (error.status === 409) return error.message || '已有活动任务，请先结束它';
   if (error.status === 401) return '会话已失效，请重启后端';
   if (error.status === 404) return '项目或任务不存在';
+  if (error.category === 'protocol') return '后端响应格式无效，请重启后端';
   if (error.status === 0) return '后端不可用，请稍后重试';
   return error.message || '后端请求失败';
 }
