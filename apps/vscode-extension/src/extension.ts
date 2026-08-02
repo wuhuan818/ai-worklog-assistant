@@ -7,6 +7,7 @@ import { TaskState } from './taskState';
 import { TaskLifecycleController } from './taskLifecycleController';
 import { EventCaptureController } from './eventCapture/eventCaptureController';
 import { WorklogEvent } from './apiClient';
+import { startBackendOnActivation } from './activationStartup';
 
 class Provider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly server: ServerManager, private readonly controller: TaskLifecycleController, private readonly events: EventCaptureController) {}
@@ -94,11 +95,13 @@ export function activate(context: vscode.ExtensionContext): void {
   logger.appendLine(`extensionPath=${context.extensionPath}`);
   logger.appendLine(`workspace=${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '(none)'}`);
   try {
-    const state = new TaskState(); const controller = new TaskLifecycleController(state, () => undefined, message => logger.appendLine(`[task] ${message}`)); const server = new ServerManager(context, logger, logPath); const events = new EventCaptureController(state, () => server.api, message => logger.appendLine(`[events] ${message}`));
+    const state = new TaskState(); const controller = new TaskLifecycleController(state, () => undefined, message => logger.appendLine(`[task] ${message}`)); const server = new ServerManager(context, logger, logPath);
     activeServer = server;
     const run = (fn: () => Promise<void>) => fn().catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
     const sync = () => server.api ? refreshTask(state, server, controller).catch(error => logger.appendLine(`[task-sync-error] ${error instanceof Error ? error.message : String(error)}`)) : Promise.resolve();
     context.subscriptions.push(server.onDidChangeState(change => { if (change.state === 'healthy') void sync(); }));
+    void startBackendOnActivation(server, logger);
+    const events = new EventCaptureController(state, () => server.api, message => logger.appendLine(`[events] ${message}`));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.startTask', () => run(() => startTask(context, state, server, controller, events))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.endTask', () => run(() => endTask(context, state, server, controller, events))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.createBug', () => run(() => createBug(state, server))));

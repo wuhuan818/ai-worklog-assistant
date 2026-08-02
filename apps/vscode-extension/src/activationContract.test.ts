@@ -8,6 +8,9 @@ test('activation creates the shared AI Worklog output channel and show-logs comm
   assert.match(compiled, /createOutputChannel\([^)]*OUTPUT_CHANNEL_NAME/);
   assert.match(compiled, /AI Worklog extension activated/);
   assert.match(compiled, /output\.show\(true\)/);
+  assert.match(compiled, /startBackendOnActivation\)\(server, logger\)/);
+  assert.ok(compiled.indexOf('startBackendOnActivation)(server, logger)') < compiled.indexOf('new eventCaptureController_1.EventCaptureController'));
+  assert.ok(compiled.indexOf('startBackendOnActivation)(server, logger)') < compiled.indexOf('registerWebviewViewProvider'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as { contributes: { commands: Array<{ command: string; title: string }> } };
   assert.deepEqual(packageJson.contributes.commands.find(command => command.command === 'aiWorklog.showLogs')?.title, 'AI Worklog: Show Logs');
 });
