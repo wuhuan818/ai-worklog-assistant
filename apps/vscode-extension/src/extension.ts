@@ -14,6 +14,7 @@ import { BugState } from './bug/bugState';
 import { startBackendOnActivation } from './activationStartup';
 import { shouldApplyRender } from './viewState';
 import { buttonState, SnapshotDeduper, WorklogViewSnapshot } from './viewSnapshot';
+import { AiProfileStore, AiProviderKind, AiProviderProfile, defaultsFor } from './ai/profileStore';
 
 class Provider implements vscode.WebviewViewProvider {
   private renderVersion = 0;
@@ -128,6 +129,17 @@ async function addNote(state: TaskState, server: ServerManager): Promise<void> {
 async function submitManualNote(state: TaskState, server: ServerManager, note: string): Promise<void> { if (!state.task || !note.trim() || note.trim().length > 4000) throw new Error('备注内容无效'); await (await ensureServer(server)).batchEvents(state.task.id, [{ client_event_id: `${Date.now()}-manual`, event_type: 'manual_note', source: 'vscode', occurred_at: new Date().toISOString(), payload: { text: note.trim() } }]); }
 
 let activeServer: ServerManager | undefined;
+async function configureAi(store: AiProfileStore): Promise<void> {
+  const display = await promptText({ prompt: 'AI Profile 名称' }); if (display.kind === 'cancelled' || !display.value.trim()) return;
+  const providerPick = await promptPick([{ label: 'DeepSeek', provider: 'deepseek' as AiProviderKind }, { label: 'Qwen', provider: 'qwen' as AiProviderKind }, { label: 'Custom OpenAI-compatible', provider: 'openai-compatible' as AiProviderKind }], { title: 'AI Provider' }); if (providerPick.kind === 'cancelled') return;
+  const defaults = defaultsFor(providerPick.value.provider); const base = await promptText({ prompt: 'Base URL', value: defaults.baseUrl }); if (base.kind === 'cancelled' || !base.value.trim()) return;
+  const model = await promptText({ prompt: '模型', value: defaults.model }); if (model.kind === 'cancelled' || !model.value.trim()) return;
+  if (providerPick.value.provider === 'deepseek' && ['deepseek-chat', 'deepseek-reasoner'].includes(model.value.trim())) { vscode.window.showWarningMessage('该 DeepSeek 旧模型名不应作为默认值，请确认可用性。'); }
+  const key = await promptText({ prompt: 'API Key', password: true }); if (key.kind === 'cancelled' || !key.value) return;
+  const timestamp = new Date().toISOString(); const profile: AiProviderProfile = { id: crypto.randomUUID(), displayName: display.value.trim(), provider: providerPick.value.provider, baseUrl: base.value.trim().replace(/\/+$/, ''), model: model.value.trim(), thinkingEnabled: false, timeoutSeconds: 30, maxOutputTokens: 16, createdAt: timestamp, updatedAt: timestamp };
+  await store.save(profile, key.value); await store.select(profile.id); vscode.window.showInformationMessage('AI Provider 已安全保存。');
+}
+async function testAi(store: AiProfileStore, server: ServerManager): Promise<void> { const profile = store.current(); if (!profile) { vscode.window.showWarningMessage('请先配置 AI Provider'); return; } const key = await store.key(profile.id); if (!key) { vscode.window.showWarningMessage('API Key 未配置'); return; } try { const result = await (await ensureServer(server)).testAiConnection({ provider: profile.provider, base_url: profile.baseUrl, model: profile.model, api_key: key, thinking_enabled: profile.thinkingEnabled, timeout_seconds: profile.timeoutSeconds, max_output_tokens: profile.maxOutputTokens }); vscode.window.showInformationMessage(`AI 连接成功（${result.latency_ms}ms）`); } finally { /* Key is deliberately request-scoped and never cached. */ } }
 export const OUTPUT_CHANNEL_NAME = 'AI Worklog';
 export const ACTIVATION_LOG_LINE = '[activation] AI Worklog extension activated';
 
@@ -142,6 +154,7 @@ export function activate(context: vscode.ExtensionContext): void {
   logger.appendLine(`workspace=${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '(none)'}`);
   try {
     const state = new TaskState(); const bugs = new BugState(); const controller = new TaskLifecycleController(state, () => undefined, message => logger.appendLine(`[task] ${message}`)); const server = new ServerManager(context, logger, logPath);
+    const aiProfiles = new AiProfileStore(context.globalState, context.secrets);
     activeServer = server;
     const run = (fn: () => Promise<void>) => fn().catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
     const recovery = new RecoveryController(state, message => logger.appendLine(`[recovery] ${message}`));
@@ -177,6 +190,11 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.addNote', () => run(() => addNote(state, server))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.restartServer', () => run(async () => { await server.restart(); vscode.window.showInformationMessage('本地后端已重启'); })));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.showLogs', () => output.show(true)));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.configureAiProvider', () => run(() => configureAi(aiProfiles))));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.switchAiProvider', () => run(async () => { const selected = await promptPick(aiProfiles.profiles().map(profile => ({ label: profile.displayName, description: profile.provider, profile })), { title: '切换 AI Provider' }); if (selected.kind !== 'cancelled') await aiProfiles.select(selected.value.profile.id); })));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.testAiConnection', () => run(() => testAi(aiProfiles, server))));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.clearAiApiKey', () => run(async () => { const profile = aiProfiles.current(); if (profile) { await aiProfiles.clearKey(profile.id); vscode.window.showInformationMessage('API Key 已清除'); } })));
+    context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.deleteAiProvider', () => run(async () => { const profile = aiProfiles.current(); if (profile) { await aiProfiles.delete(profile.id); vscode.window.showInformationMessage('AI Provider 已删除'); } })));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.openReview', () => vscode.window.showInformationMessage('审核页面将在结束任务后打开')));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.searchKnowledge', () => vscode.window.showInformationMessage('知识库搜索入口已预留')));
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', new Provider(context, state, bugs, server, controller, events, message => logger.appendLine(message))));

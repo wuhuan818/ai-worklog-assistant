@@ -65,6 +65,26 @@
                                          {
                                              "command":  "aiWorklog.showLogs",
                                              "title":  "AI Worklog: Show Logs"
+                                         },
+                                         {
+                                             "command": "aiWorklog.configureAiProvider",
+                                             "title": "AI Worklog: 配置 AI Provider"
+                                         },
+                                         {
+                                             "command": "aiWorklog.switchAiProvider",
+                                             "title": "AI Worklog: 切换 AI Provider"
+                                         },
+                                         {
+                                             "command": "aiWorklog.testAiConnection",
+                                             "title": "AI Worklog: 测试 AI 连接"
+                                         },
+                                         {
+                                             "command": "aiWorklog.clearAiApiKey",
+                                             "title": "AI Worklog: 清除 AI API Key"
+                                         },
+                                         {
+                                             "command": "aiWorklog.deleteAiProvider",
+                                             "title": "AI Worklog: 删除 AI Provider 配置"
                                          }
                                      ],
                         "configuration":  {
@@ -132,7 +152,8 @@
                     "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js",
                     "test:e2e:event-capture":  "node test/runEventCaptureE2E.js",
                     "test:e2e:bug-lifecycle":  "node test/runBugLifecycleE2E.js",
-                    "test:e2e:data-continuity": "node test/runDataContinuityE2E.js"
+                    "test:e2e:data-continuity": "node test/runDataContinuityE2E.js",
+                    "test:e2e:ai-provider": "node test/runAiProviderE2E.js"
                 },
     "devDependencies":  {
                             "@types/node":  "^20.0.0",

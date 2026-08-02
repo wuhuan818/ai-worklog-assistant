@@ -16,6 +16,8 @@ TOKEN = os.getenv('WORKLOG_SESSION_TOKEN', 'dev-token')
 HOST = os.getenv('WORKLOG_HOST', '127.0.0.1')
 PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
+from app.ai.router import router as ai_router
+app.include_router(ai_router)
 
 def now() -> str: return datetime.now(timezone.utc).isoformat()
 def normalize_workspace(value: Optional[str]) -> str:

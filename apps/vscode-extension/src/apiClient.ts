@@ -12,6 +12,7 @@ export interface BugNote { id: string; client_note_id: string; user_id: string; 
 export interface BugResolution { id: string; user_id: string; task_id: string; bug_id: string; resolution_summary: string; root_cause?: string | null; verification?: string | null; created_at: string; }
 export interface BugListResponse { items: BugView[]; total: number; limit: number; offset: number; }
 export interface HttpTransport { fetch(input: string, init?: RequestInit): Promise<Response>; }
+export interface AiConnectionResult { ok: boolean; provider: string; model: string; latency_ms: number; status: string; capabilities: Record<string, boolean>; }
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string, public readonly category: 'http' | 'transport' | 'protocol' = 'http') { super(message); this.name = 'ApiError'; }
@@ -63,4 +64,5 @@ export class ApiClient {
   listBugResolutions(taskId: string, bugId: string): Promise<BugResolution[]> { return this.request(`/tasks/${taskId}/bugs/${bugId}/resolutions`); }
   listBugEvents(taskId: string, bugId: string, limit = 100, offset = 0, eventType?: string): Promise<{ items: WorklogEvent[]; total: number; limit: number; offset: number }> { return this.listEvents(taskId, limit, { offset, eventType, bugId }); }
   generateSummary(taskId: string): Promise<Record<string, unknown>> { return this.request(`/tasks/${taskId}/summaries/generate`, { method: 'POST' }); }
+  testAiConnection(input: { provider: string; base_url: string; model: string; api_key: string; thinking_enabled: boolean; timeout_seconds: number; max_output_tokens: number }): Promise<AiConnectionResult> { return this.request('/ai/providers/test-connection', { method: 'POST', body: JSON.stringify(input) }); }
 }
