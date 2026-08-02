@@ -8,7 +8,7 @@ const reportPath = process.env.STAGE4_E2E_REPORT;
 const workspacePath = process.env.STAGE4_E2E_WORKSPACE;
 const dataDir = process.env.STAGE4_E2E_DATA_DIR;
 const timeoutMs = 30000;
-const report = { status: 'failed', extensionActivated: false, backendAutoStarted: false, backendHealthy: false, taskCreated: false, events: {}, restartPersistence: false, captureAfterRestart: false, endTaskFlush: false, logSecurityPassed: false, residualProcessCount: 0, durationSeconds: 0 };
+const report = { status: 'failed', extensionActivated: false, backendAutoStarted: false, backendHealthy: false, taskCreated: false, events: {}, restartPersistence: false, captureAfterRestart: false, endTaskFlush: false, logSecurityPassed: false, viewReopenStateConsistency: false, backendPidUnchangedAfterViewReopen: false, activeTaskPreservedAfterViewReopen: false, eventSummaryPreservedAfterViewReopen: false, residualProcessCount: 0, durationSeconds: 0 };
 const tracePath = reportPath ? reportPath.replace(/\.json$/, '.trace.log') : null;
 function trace(message) { if (tracePath) fs.appendFileSync(tracePath, `${new Date().toISOString()} ${message}\n`, 'utf8'); }
 
@@ -53,6 +53,21 @@ async function run() {
     assert.ok(allEvents(afterSave, 'file_changed').some(event => Number(event.payload.change_count) > 0));
     assert.ok(allEvents(afterSave, 'file_saved').some(event => typeof event.payload.diff_summary === 'string'));
     assert.ok(!JSON.stringify(afterSave.recent).includes('console.log(count)'));
+    const beforeViewReopen = await runtime();
+    const viewCommands = (await vscode.commands.getCommands(true)).filter(command => command.toLowerCase().includes('aiworklog') || command.toLowerCase().includes('view.extension'));
+    trace(`view commands=${viewCommands.join(',')}`);
+    await vscode.commands.executeCommand('aiWorklog.sidebar.toggleVisibility');
+    await vscode.commands.executeCommand('aiWorklog.sidebar.focus');
+    await delay(500);
+    await vscode.commands.executeCommand('aiWorklog.sidebar.toggleVisibility');
+    await delay(300);
+    await vscode.commands.executeCommand('aiWorklog.sidebar.toggleVisibility');
+    const afterViewReopen = await waitRuntime(state => state.backendState === 'healthy' && state.task?.id === task.id, 'view reopen state');
+    report.backendPidUnchangedAfterViewReopen = beforeViewReopen.pid === afterViewReopen.pid;
+    report.activeTaskPreservedAfterViewReopen = afterViewReopen.task.id === beforeViewReopen.task.id && afterViewReopen.task.started_at === beforeViewReopen.task.started_at;
+    report.eventSummaryPreservedAfterViewReopen = afterViewReopen.summary.total >= beforeViewReopen.summary.total;
+    report.viewReopenStateConsistency = report.backendPidUnchangedAfterViewReopen && report.activeTaskPreservedAfterViewReopen && report.eventSummaryPreservedAfterViewReopen;
+    assert.equal(report.viewReopenStateConsistency, true);
     await saveText(document, 'const count: number = "abc";\nconsole.log(count);\n');
     await waitDiagnostics(fileUri, diagnostics => diagnostics.some(item => item.severity === vscode.DiagnosticSeverity.Error), 'diagnostics appear');
     await vscode.commands.executeCommand('aiWorklog.test.flushEvents');

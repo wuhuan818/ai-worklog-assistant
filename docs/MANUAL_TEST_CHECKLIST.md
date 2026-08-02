@@ -94,3 +94,5 @@
 ## Automated E2E companion
 
 The GUI checklist is complemented by the real-host command `npm.cmd run test:e2e:event-capture`; it covers the same event lifecycle plus SQLite, redaction, restart persistence, and process cleanup.
+
+View lifecycle check: after switching away and back to AI Worklog, confirm backend remains normal, the task ID and timer remain unchanged, and task/note/refresh/event buttons remain enabled as appropriate.

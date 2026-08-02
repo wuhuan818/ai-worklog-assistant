@@ -19,3 +19,5 @@ API：
 ## Automated Extension Host E2E
 
 Run `npm.cmd run test:e2e:event-capture` from `apps/vscode-extension`. It uses a real Extension Host and packaged backend, and writes `artifacts/test-results/stage04-extension-host-e2e.json`.
+
+View reopen regression is covered by refreshing from the ServerManager state source on resolve/visibility/backend/task changes; older asynchronous event renders are discarded by a monotonic render version.

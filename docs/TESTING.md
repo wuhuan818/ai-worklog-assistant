@@ -20,3 +20,5 @@ On the managed Windows desktop, run the verifier from an elevated test shell onl
 ```
 
 The verifier builds the backend/extension and checks the report status. The E2E runner uses `VSCODE_EXECUTABLE` when supplied and otherwise downloads the pinned VS Code test runtime.
+
+The report also includes `viewReopenStateConsistency`, `backendPidUnchangedAfterViewReopen`, `activeTaskPreservedAfterViewReopen`, and `eventSummaryPreservedAfterViewReopen`.
