@@ -106,4 +106,4 @@ async function run() {
   } catch (error) { report.durationSeconds = Math.round((Date.now() - started) / 1000); writeReport({ error: error instanceof Error ? error.message : String(error) }); throw error; }
 }
 
-exports.run = run;
+exports.run = process.env.STAGE5_E2E_REPORT ? require('./bugLifecycle').run : run;

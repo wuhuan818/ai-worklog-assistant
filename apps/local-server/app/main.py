@@ -125,7 +125,9 @@ class CapturedEvent(BaseModel):
     file_path: Optional[str] = None
     bug_id: Optional[str] = Field(None, alias='bugId')
     class Config:
-        allow_population_by_field_name = True
+        # Accept both wire forms: existing clients send bugId while the
+        # buffered extension contract deliberately uses snake_case bug_id.
+        populate_by_name = True
     occurred_at: str
     payload: Dict[str, Any] = {}
     @validator('occurred_at')
