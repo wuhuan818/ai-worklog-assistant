@@ -22,7 +22,7 @@ class Provider implements vscode.WebviewViewProvider {
   private viewSubscriptions: vscode.Disposable[] = [];
   private viewTimer?: ReturnType<typeof setInterval>;
   private readonly snapshotDeduper = new SnapshotDeduper();
-  constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly bugs: BugState, private readonly server: ServerManager, private readonly controller: TaskLifecycleController, private readonly events: EventCaptureController, private readonly log: (message: string) => void = () => undefined) {}
+  constructor(private readonly context: vscode.ExtensionContext, private readonly state: TaskState, private readonly bugs: BugState, private readonly server: ServerManager, private readonly controller: TaskLifecycleController, private readonly events: EventCaptureController, private readonly aiProfiles: AiProfileStore, private readonly log: (message: string) => void = () => undefined) {}
   resolveWebviewView(view: vscode.WebviewView): void {
     this.viewSubscriptions.forEach(subscription => subscription.dispose());
     this.viewSubscriptions = [];
@@ -202,7 +202,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.deleteAiProvider', () => run(async () => { const profile = aiProfiles.current(); if (profile) { await aiProfiles.delete(profile.id); vscode.window.showInformationMessage('AI Provider 已删除'); } })));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.openReview', () => vscode.window.showInformationMessage('审核页面将在结束任务后打开')));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.searchKnowledge', () => vscode.window.showInformationMessage('知识库搜索入口已预留')));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', new Provider(context, state, bugs, server, controller, events, message => logger.appendLine(message))));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', new Provider(context, state, bugs, server, controller, events, aiProfiles, message => logger.appendLine(message))));
     context.subscriptions.push(events);
     const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left); status.text = '$(pencil) Worklog'; status.command = 'aiWorklog.startTask'; status.show(); context.subscriptions.push(status);
     context.subscriptions.push({ dispose: () => { bugs.dispose(); void events.flush(); void server.stop(); } });
