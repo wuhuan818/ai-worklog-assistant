@@ -115,6 +115,7 @@ export class BackendProcessManager {
   get running(): boolean { return this.currentState === 'starting' || this.currentState === 'healthy'; }
   get lastErrorMessage(): string | undefined { return this.lastError; }
   get logPath(): string | undefined { return this.options.logPath; }
+  get dataDir(): string { return this.options.dataDir; }
 
   onDidChangeState(listener: Listener): { dispose: () => void } {
     this.listeners.add(listener);

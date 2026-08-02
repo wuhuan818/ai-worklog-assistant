@@ -78,8 +78,9 @@ async function resolveBug(server: ServerManager): Promise<void> {
 }
 async function addNote(state: TaskState, server: ServerManager): Promise<void> {
   if (!state.task) { vscode.window.showWarningMessage('当前没有活动任务'); return; }
-  const note = await vscode.window.showInputBox({ prompt: '备注', validateInput: value => value.trim().length > 4000 ? '备注最多 4000 个字符' : undefined }); if (!note?.trim()) return; await (await ensureServer(server)).batchEvents(state.task.id, [{ client_event_id: `${Date.now()}-manual`, event_type: 'manual_note', source: 'vscode', occurred_at: new Date().toISOString(), payload: { text: note.trim() } }]); vscode.window.showInformationMessage('备注已记录');
+  const note = await vscode.window.showInputBox({ prompt: '备注', validateInput: value => value.trim().length > 4000 ? '备注最多 4000 个字符' : undefined }); if (!note?.trim()) return; await submitManualNote(state, server, note); vscode.window.showInformationMessage('备注已记录');
 }
+async function submitManualNote(state: TaskState, server: ServerManager, note: string): Promise<void> { if (!state.task || !note.trim() || note.trim().length > 4000) throw new Error('备注内容无效'); await (await ensureServer(server)).batchEvents(state.task.id, [{ client_event_id: `${Date.now()}-manual`, event_type: 'manual_note', source: 'vscode', occurred_at: new Date().toISOString(), payload: { text: note.trim() } }]); }
 
 let activeServer: ServerManager | undefined;
 export const OUTPUT_CHANNEL_NAME = 'AI Worklog';
@@ -102,6 +103,14 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(server.onDidChangeState(change => { if (change.state === 'healthy') void sync(); }));
     void startBackendOnActivation(server, logger);
     const events = new EventCaptureController(state, () => server.api, message => logger.appendLine(`[events] ${message}`));
+    if (context.extensionMode === vscode.ExtensionMode.Test) {
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.startTask', async () => { const api = await ensureServer(server); const name = `阶段4自动事件验收-${Date.now()}`; const project = await controller.createProject(api, vscode.workspace.name || name, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); const task = await controller.start(api, { name, project_id: project.id, description: 'Extension Host E2E event capture', requirement_id: 'STAGE-04-E2E', tags: ['stage4', 'e2e', 'event-capture'] }); state.setTask(task); return task; }));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.addManualNote', (note: string) => submitManualNote(state, server, note)));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.flushEvents', () => events.flush()));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.restartBackend', () => server.restart()));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.endTask', () => endTask(context, state, server, controller, events)));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.getRuntimeState', async () => { const task = state.task; const api = server.api; let summary = { total: 0, by_type: {}, latest_event_at: null as string | null }; let recent = { items: [] as WorklogEvent[], total: 0, limit: 100, offset: 0 }; if (task && api) { try { summary = await api.eventSummary(task.id); recent = await api.listEvents(task.id, 100); } catch { /* The test harness can observe the backend error state and restart it. */ } } return { extensionMode: context.extensionMode, backendState: server.state, pid: server.pid, port: server.port, task, summary, recent, pending: events.pendingCount, logPath, dataDir: server.dataDir }; }));
+    }
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.startTask', () => run(() => startTask(context, state, server, controller, events))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.endTask', () => run(() => endTask(context, state, server, controller, events))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.createBug', () => run(() => createBug(state, server))));

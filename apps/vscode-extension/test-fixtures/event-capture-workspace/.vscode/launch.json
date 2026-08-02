@@ -1,0 +1,4 @@
+{
+  "version": "0.2.0",
+  "configurations": [{ "name": "AI Worklog Stage4 Debug", "type": "node", "request": "launch", "program": "${workspaceFolder}/src/debug-test.js", "console": "internalConsole" }]
+}

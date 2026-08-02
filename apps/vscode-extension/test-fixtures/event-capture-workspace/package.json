@@ -1,0 +1,6 @@
+{
+  "name": "ai-worklog-event-e2e-fixture",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "stage4-task": "node -e \"console.log('stage4 task completed')\"" }
+}
