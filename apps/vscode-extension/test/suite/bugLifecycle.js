@@ -7,7 +7,7 @@ const vscode = require('vscode');
 const reportPath = process.env.STAGE5_E2E_REPORT;
 const workspacePath = process.env.STAGE5_E2E_WORKSPACE;
 const dataDir = process.env.STAGE5_E2E_DATA_DIR;
-const report = { status: 'failed', bugLifecycle: { bugACreated: false, bugBCreated: false, switchPassed: false, eventAssociationPassed: false, pendingEventAssociationPassed: false, notePersisted: false, resolved: false, reopened: false, restartRecoveryPassed: false, viewReopenPassed: false, taskEndAutoPausePassed: false } };
+const report = { status: 'failed', bugButtonStability: false, fullHtmlReplacementDuringTimerCount: 0, duplicateStateSubscriptionCount: 0, buttonStateTransitionsWithoutBusinessChange: 0, bugLifecycle: { bugACreated: false, bugBCreated: false, switchPassed: false, eventAssociationPassed: false, pendingEventAssociationPassed: false, notePersisted: false, resolved: false, reopened: false, restartRecoveryPassed: false, viewReopenPassed: false, taskEndAutoPausePassed: false } };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function runtime() { return vscode.commands.executeCommand('aiWorklog.test.getRuntimeState'); }
 async function waitFor(label, predicate, timeout = 30000) { const deadline = Date.now() + timeout; let last; while (Date.now() < deadline) { last = await predicate(); if (last) return last; await delay(250); } throw new Error(`${label} timed out: ${JSON.stringify(last)}`); }
@@ -22,6 +22,7 @@ async function run() {
     const task = await vscode.commands.executeCommand('aiWorklog.test.startTask'); assert.equal(task.status, 'active');
     const bugA = await vscode.commands.executeCommand('aiWorklog.test.createBug', { title: 'Stage5 Bug A', severity: 'high', activate: true }); report.bugLifecycle.bugACreated = true;
     await waitRuntime('Bug A active', state => state.currentBug?.id === bugA.id);
+    const stableBefore = await runtime(); await delay(5000); const stableAfter = await runtime(); assert.equal(stableAfter.currentBug?.id, stableBefore.currentBug?.id); assert.equal(stableAfter.backendState, stableBefore.backendState); assert.equal(stableAfter.pid, stableBefore.pid); report.bugButtonStability = true;
     await vscode.commands.executeCommand('aiWorklog.test.recordEvent', 'manual_note');
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(workspacePath, 'src', 'event-test.ts')));
     await saveText(document, 'const stage5 = "A";\n');

@@ -107,3 +107,6 @@ View lifecycle check: after switching away and back to AI Worklog, confirm backe
 6. 结束任务；确认 B 自动 paused，且不能再添加备注、切换或解决。
 
 自动化负责 SQLite、状态并发、重启、事件归属和进程清理；此清单只验证真实 Extension Host 的交互与显示。
+# Bug button stability follow-up
+
+Create and activate a Bug, observe the sidebar for ten seconds, switch away and back, then pause or resolve it and observe disabled buttons for another ten seconds.  Timer text may update; button state must remain visually stable until a business action changes it.

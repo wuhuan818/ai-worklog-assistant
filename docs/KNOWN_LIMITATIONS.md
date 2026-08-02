@@ -16,3 +16,6 @@ F5 后端自动启动回归已修复：根因是激活流程缺少 `ServerManage
 已解决：AI Worklog 侧边栏重新显示后状态回退为“启动中”。View 现在从 ServerManager 当前状态刷新，视图生命周期不会停止或重置后端，旧异步渲染会被版本号丢弃。
 
 阶段 5 仍使用固定 `local-user`，不提供跨设备同步、协作分配、GitHub Issue 同步、自动分类或相似 Bug 匹配。Bug 描述、备注与解决内容受长度限制，并且日志只记录 ID、状态和计数，不记录全文。扩展进程异常退出前尚未 flush 的事件仍可能丢失；已入 Buffer 的 Bug ID 不会被后续切换改变。
+# Resolved: intermittent Bug button flicker
+
+The sidebar previously mixed timer refreshes with independent backend/task/Bug button writes.  It now uses a fingerprinted state snapshot and timer-only updates; this is covered by the Bug Button Stability E2E.

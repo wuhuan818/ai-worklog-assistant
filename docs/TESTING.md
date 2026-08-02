@@ -35,3 +35,6 @@ From the repository root, build the packaged backend and run:
 The verifier uses a random port, token and temporary data directory. It creates two Bugs, validates atomic switching and event `bug_id` association, writes a Bug note, resolves/reopens a Bug, restarts against the same SQLite database, ends the task, and checks that completed-task modifications return 409. It always cleans its bounded server process tree and temporary directory. Run it three times for the stage gate.
 
 The Extension Host E2E additionally verifies the UI state, collectors and pending-buffer association; a GUI pass remains required for final interaction acceptance.
+# Bug button stability
+
+`node test/runBugLifecycleE2E.js` verifies a stable active Bug snapshot over five seconds, including a stable backend PID.  Unit tests cover snapshot fingerprint de-duplication and the single button-state matrix.

@@ -17,3 +17,6 @@ Bug notes 独立于任务级 `manual_note`，用 client note ID 幂等保存，�
 ## 安全边界
 
 日志允许 Bug ID、状态、计数、API 状态和脱敏错误摘要；不得记录 token、secret、Bug 描述、备注、解决方案、根因、验证全文、文件内容或 Diff。
+# Bug button rendering stability fix
+
+The sidebar shell is assigned only when a Webview is resolved.  The former UI timer refreshed backend, task, Bug and event messages independently every second; those messages each wrote overlapping `disabled` attributes and produced a visible race.  The provider now emits a versioned, fingerprint-deduplicated `state` snapshot for business changes and a separate `timer` message for task/Bug durations.  Button state is calculated once from the snapshot and no timer may change it.
