@@ -6,6 +6,8 @@ import { ServerManager } from './serverManager';
 import { TaskState } from './taskState';
 import { TaskLifecycleController } from './taskLifecycleController';
 import { EventCaptureController } from './eventCapture/eventCaptureController';
+import { RecoveryController } from './recoveryController';
+import { resolveWorkspaceIdentity } from './workspaceIdentity';
 import { BugView, WorklogEvent } from './apiClient';
 import { BugState } from './bug/bugState';
 import { startBackendOnActivation } from './activationStartup';
@@ -90,12 +92,11 @@ async function ensureServer(server: ServerManager) { try { return await server.s
 async function startTask(_context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController, events?: EventCaptureController): Promise<void> {
   const name = await vscode.window.showInputBox({ prompt: '任务名称（必填）' }); if (!name?.trim()) return;
   const api = await ensureServer(server); const active=await api.activeTask(); if(active){ vscode.window.showWarningMessage(`已有活动任务：${active.name}`); state.setTask(active); return; }
-  const projects=await api.listProjects(); const currentName=vscode.workspace.name||'未命名项目'; const currentPath=vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const choices=[{label:`新建项目：${currentName}`,description:currentPath||'无 Workspace',kind:vscode.QuickPickItemKind.Default,item:undefined as typeof projects[number]|undefined},...projects.map(item=>({label:item.name,description:item.workspace_path||'无 Workspace',item}))];
-  const selected=await vscode.window.showQuickPick(choices,{prompt:'选择项目或新建当前 Workspace 项目'}); if(!selected) return;
-  let project=selected.item; if(!project) project=await api.createProject({name:currentName,workspace_path:currentPath});
+  const identity = resolveWorkspaceIdentity(); const currentPath=vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!identity) { vscode.window.showWarningMessage('请先打开工作区，再创建任务'); return; }
+  const project=(await api.resolveProject({name: identity.displayName, workspace_path: currentPath, workspace_identity_key: identity.canonicalKey, workspace_identity_version: identity.version, workspace_kind: identity.kind, canonical_workspace_uri: identity.canonicalUris[0]})).project;
   const description=await vscode.window.showInputBox({prompt:'任务描述（可选）'})||''; const requirement_id=await vscode.window.showInputBox({prompt:'需求编号（可选）'})||''; const rawTags=await vscode.window.showInputBox({prompt:'标签（可选，逗号分隔）'})||'';
-  const task=controller ? await controller.start(api,{name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}) : await api.createTask({name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}); state.setTask(task);
+  const task=controller ? await controller.start(api,{name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}) : await api.createTask({name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}); state.setTask(task); events?.setEnabled(true);
   events?.record('vscode_task_started', { name: task.name, source: 'ai-worklog' });
   vscode.window.showInformationMessage(`已开始记录：${name}`);
 }
@@ -142,12 +143,20 @@ export function activate(context: vscode.ExtensionContext): void {
     const state = new TaskState(); const bugs = new BugState(); const controller = new TaskLifecycleController(state, () => undefined, message => logger.appendLine(`[task] ${message}`)); const server = new ServerManager(context, logger, logPath);
     activeServer = server;
     const run = (fn: () => Promise<void>) => fn().catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
-    const sync = () => server.api ? refreshTask(state, server, controller).then(() => synchronizeBugs(state, bugs, server)).catch(error => logger.appendLine(`[task-sync-error] ${error instanceof Error ? error.message : String(error)}`)) : Promise.resolve();
-    context.subscriptions.push(server.onDidChangeState(change => { if (change.state === 'healthy') void sync(); }));
+    const recovery = new RecoveryController(state, message => logger.appendLine(`[recovery] ${message}`));
     void startBackendOnActivation(server, logger);
     const events = new EventCaptureController(state, () => server.api, message => logger.appendLine(`[events] ${message}`), () => bugs.activeBugId);
+    const sync = async () => {
+      if (!server.api) return;
+      const identity = resolveWorkspaceIdentity();
+      const result = await recovery.recover(server.api, identity, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+      events.setEnabled(result.state === 'ready' && Boolean(state.task));
+      if (result.state === 'ready') await synchronizeBugs(state, bugs, server); else bugs.clear();
+    };
+    context.subscriptions.push(server.onDidChangeState(change => { if (change.state === 'healthy') void sync(); }));
+    if (server.state === 'healthy') void sync();
     if (context.extensionMode === vscode.ExtensionMode.Test) {
-      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.startTask', async () => { const api = await ensureServer(server); const name = `阶段4自动事件验收-${Date.now()}`; const project = await controller.createProject(api, vscode.workspace.name || name, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); const task = await controller.start(api, { name, project_id: project.id, description: 'Extension Host E2E event capture', requirement_id: 'STAGE-04-E2E', tags: ['stage4', 'e2e', 'event-capture'] }); state.setTask(task); return task; }));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.startTask', async () => { const api = await ensureServer(server); const name = `阶段4自动事件验收-${Date.now()}`; const identity = resolveWorkspaceIdentity(); if (!identity) throw new Error('No workspace'); const project = (await api.resolveProject({ name: identity.displayName, workspace_path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, workspace_identity_key: identity.canonicalKey, workspace_identity_version: identity.version, workspace_kind: identity.kind, canonical_workspace_uri: identity.canonicalUris[0] })).project; const task = await controller.start(api, { name, project_id: project.id, description: 'Extension Host E2E event capture', requirement_id: 'STAGE-04-E2E', tags: ['stage4', 'e2e', 'event-capture'] }); state.setTask(task); events.setEnabled(true); return task; }));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.createBug', async (input: { title: string; severity?: import('./apiClient').BugSeverity; activate?: boolean }) => { if (!state.task) throw new Error('No active task'); const api = await ensureServer(server); const bug = await api.createBug(state.task.id, { title: input.title, severity: input.severity || 'medium', activate_immediately: Boolean(input.activate) }); bugs.replace(toBugRecord(bug)); return bug; }));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.activateBug', async (bugId: string) => { if (!state.task) throw new Error('No active task'); const bug = await (await ensureServer(server)).activateBug(state.task.id, bugId); bugs.setCurrent(toBugRecord(bug)); await synchronizeBugs(state, bugs, server); return bug; }));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.addBugNote', async (bugId: string, text: string) => { if (!state.task) throw new Error('No active task'); return (await ensureServer(server)).addBugNote(state.task.id, bugId, { client_note_id: `test-${Date.now()}-${Math.random().toString(36).slice(2)}`, text }); }));
@@ -158,7 +167,7 @@ export function activate(context: vscode.ExtensionContext): void {
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.flushEvents', () => events.flush()));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.restartBackend', () => server.restart()));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.endTask', () => endTask(context, state, server, controller, events).then(() => bugs.clearCurrent())));
-      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.getRuntimeState', async () => { const task = state.task; const api = server.api; let summary = { total: 0, by_type: {}, latest_event_at: null as string | null }; let recent = { items: [] as WorklogEvent[], total: 0, limit: 100, offset: 0 }; if (task && api) { try { summary = await api.eventSummary(task.id); recent = await api.listEvents(task.id, 100); } catch { /* The test harness can observe the backend error state and restart it. */ } } return { extensionMode: context.extensionMode, backendState: server.state, pid: server.pid, port: server.port, task, bugs: bugs.all, currentBug: bugs.current, summary, recent, pending: events.pendingCount, logPath, dataDir: server.dataDir }; }));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.getRuntimeState', async () => { const task = state.task; const api = server.api; let summary = { total: 0, by_type: {}, latest_event_at: null as string | null }; let recent = { items: [] as WorklogEvent[], total: 0, limit: 100, offset: 0 }; if (task && api) { try { summary = await api.eventSummary(task.id); recent = await api.listEvents(task.id, 100); } catch { /* The test harness can observe the backend error state and restart it. */ } } return { extensionMode: context.extensionMode, backendState: server.state, pid: server.pid, port: server.port, task, bugs: bugs.all, currentBug: bugs.current, summary, recent, pending: events.pendingCount, logPath, dataDir: server.dataDir, recoveryState: recovery.state }; }));
     }
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.startTask', () => run(() => startTask(context, state, server, controller, events))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.endTask', () => run(() => endTask(context, state, server, controller, events).then(() => bugs.clearCurrent()))));

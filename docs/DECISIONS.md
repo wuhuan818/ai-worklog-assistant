@@ -12,3 +12,8 @@
 - 阶段 5：Bug 的状态转换和 active 切换由 SQLite 事务执行；UI 只反映服务端结果，不能替代唯一约束。
 - 阶段 5：事件创建时快照 `bug_id`，而不是 flush 时读取当前 Bug。因此切换后的 Buffer 不会重写已排队事件的归属。
 - 阶段 5：结束任务会先 flush，随后自动暂停 active Bug 并累计时长；不自动 resolve，已完成任务的 Bug 不再可修改。
+# Stage 06
+
+Workspace paths are not names: Windows path variants canonicalize into a
+versioned identity hash. Git metadata remains deliberately outside the primary
+identity to avoid silently merging worktrees or moved checkouts.

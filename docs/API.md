@@ -15,3 +15,7 @@ Bug 仅属于当前 `local-user` 的同一项目、同一任务。接口为 `GET
 创建请求要求 `title` 与 `severity`，可选 description/category/source/external_reference/tags；默认 `open`。activate 会在一个事务中暂停原 active Bug，并激活 open/paused 目标。pause 仅允许 active；resolve 要求非空 `resolution_summary`，可选 `root_cause`、`verification`；reopen 仅允许 resolved 并变为 open。状态或已完成任务不可修改时返回 409，字段校验返回 422。
 
 备注接口为 `GET/POST /tasks/{task_id}/bugs/{bug_id}/notes`；POST 要求幂等 `client_note_id` 和非空、最长 4000 字符的 `text`。`GET /tasks/{task_id}/bugs/{bug_id}/resolutions` 返回完整解决历史，`GET /tasks/{task_id}/bugs/{bug_id}/events` 返回仅归属该 Bug 的事件，均支持稳定分页。事件批量体可选 `bug_id`；它必须属于相同用户和任务，但写入时不要求 Bug 仍为 active，以支持延迟 flush。
+# Stage 06
+
+`POST /projects/resolve` atomically finds or creates a project from a versioned
+workspace identity and returns `{ project, created, matched_by }`.

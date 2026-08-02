@@ -10,3 +10,8 @@
 `bugs` 保存 user/project/task 归属、标题、可选描述和分类字段、severity、JSON tags、状态时间、`active_started_at` 与累计 `total_active_seconds`。状态为 `open`、`active`、`paused`、`resolved`；`task_id WHERE status='active'` 的部分唯一索引是后端的最终单 current Bug 约束。
 
 `bug_notes` 保存唯一 `client_note_id`、Bug/task/user、备注文本和 UTC 创建时间。`bug_resolutions` 为每次解决新增一行，保存摘要、可选根因/验证和 UTC 创建时间；reopen 不删除历史。`worklog_events.bug_id` 是可空、可索引的迁移列，旧事件保持 null。所有迁移仅补充结构和索引，保留已有 SQLite 数据。
+# Stage 06 project identity
+
+Projects retain their existing IDs and add identity key, version, kind,
+canonical URI and last-seen metadata. Identity resolution is transactional and
+legacy workspace-path projects are upgraded in place.

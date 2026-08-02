@@ -13,3 +13,7 @@
 本次人工验收修复定位到 View 生命周期与旧快照竞态：侧边栏不再拥有独立后端状态，resolve/visible/状态变化均从 ServerManager 刷新，并用 render version 丢弃旧异步结果；新增 View Reopen 回归字段和按钮矩阵单元测试。
 
 阶段 5 由并行子 Agent 实施：后端负责 SQLite 模型、迁移、状态事务和 API；扩展负责 Bug 状态、命令与视图；事件负责采集时固定 bug_id 与 Extension Host E2E；文档/验证负责真实 EXE 生命周期脚本、安全边界和人工验收说明。主 Agent 负责整合、全量测试和 Git 操作。
+# Stage 06 boundary
+
+AI features must consume only persisted, workspace-resolved records; they must
+not infer task ownership from the current VS Code process or folder name.

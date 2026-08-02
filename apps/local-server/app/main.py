@@ -7,8 +7,10 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, validator
 
 ROOT = Path(__file__).resolve().parents[3]
-USER_DATA_DIR = Path(os.getenv('WORKLOG_DATA_DIR', Path.home() / 'AppData' / 'Local' / 'AIWorklogAssistant'))
-DB_PATH = Path(os.getenv('WORKLOG_DB', USER_DATA_DIR / 'worklog.db'))
+USER_DATA_DIR = Path(os.getenv('AI_WORKLOG_DATA_DIR') or os.getenv('WORKLOG_DATA_DIR') or Path.home() / 'AppData' / 'Local' / 'AIWorklogAssistant').expanduser().resolve()
+# Keep the legacy filename so Stage 2-5 isolated verifiers remain compatible;
+# the enclosing directory is now always explicit and stable.
+DB_PATH = Path(os.getenv('WORKLOG_DB', USER_DATA_DIR / 'worklog.db')).expanduser().resolve()
 KNOWLEDGE = Path(os.getenv('WORKLOG_KNOWLEDGE', USER_DATA_DIR / 'knowledge'))
 TOKEN = os.getenv('WORKLOG_SESSION_TOKEN', 'dev-token')
 HOST = os.getenv('WORKLOG_HOST', '127.0.0.1')
@@ -18,7 +20,8 @@ app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
 def now() -> str: return datetime.now(timezone.utc).isoformat()
 def normalize_workspace(value: Optional[str]) -> str:
     if not value: return ''
-    return os.path.normcase(os.path.normpath(value.strip()))
+    value = value.strip().replace('file:///', '').replace('/', '\\')
+    return os.path.normcase(os.path.normpath(value)).rstrip('\\')
 def db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None); c.row_factory = sqlite3.Row
@@ -43,6 +46,11 @@ def db():
     add_column('projects', 'workspace_key', 'TEXT')
     add_column('projects', 'created_at', 'TEXT')
     add_column('projects', 'updated_at', 'TEXT')
+    add_column('projects', 'workspace_identity_key', 'TEXT')
+    add_column('projects', 'workspace_identity_version', 'INTEGER')
+    add_column('projects', 'workspace_kind', 'TEXT')
+    add_column('projects', 'canonical_workspace_uri', 'TEXT')
+    add_column('projects', 'last_seen_at', 'TEXT')
     add_column('tasks', 'duration_seconds', 'INTEGER')
     add_column('tasks', 'created_at', 'TEXT')
     add_column('tasks', 'updated_at', 'TEXT')
@@ -71,6 +79,7 @@ def db():
         for old in rows[1:]:
             c.execute("UPDATE bugs SET status='paused', paused_at=?, updated_at=?, active_started_at=NULL WHERE id=?", (timestamp, timestamp, old['id']))
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user_name_workspace ON projects(user_id, normalized_name, COALESCE(workspace_key, \'\'))')
+    c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_workspace_identity ON projects(user_id, workspace_identity_key) WHERE workspace_identity_key IS NOT NULL')
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_tasks_one_active ON tasks(user_id) WHERE status=\'active\'')
     c.execute('CREATE INDEX IF NOT EXISTS ix_worklog_events_task_sequence ON worklog_events(task_id, sequence, occurred_at, id)')
     c.execute('CREATE INDEX IF NOT EXISTS ix_worklog_events_bug ON worklog_events(task_id, bug_id, sequence)')
@@ -81,7 +90,13 @@ def db():
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); return c
 def auth(authorization: Optional[str]):
     if authorization != f'Bearer {TOKEN}': raise HTTPException(401, 'Invalid session token')
-class ProjectIn(BaseModel): name: str = Field(min_length=1); workspace_path: Optional[str] = None
+class ProjectIn(BaseModel):
+    name: str = Field(min_length=1)
+    workspace_path: Optional[str] = None
+    workspace_identity_key: Optional[str] = None
+    workspace_identity_version: Optional[int] = None
+    workspace_kind: Optional[str] = None
+    canonical_workspace_uri: Optional[str] = None
 class TaskIn(BaseModel): name: str; project: Optional[str] = None; project_id: Optional[str] = None; description: str = ''; requirement_id: str = ''; tags: List[str] = []
 class BugIn(BaseModel):
     title: str = Field(min_length=1, max_length=500)
@@ -159,14 +174,45 @@ def create_project(x: ProjectIn, authorization: Optional[str]=Header(None)):
     if not name: raise HTTPException(422, 'Project name is required')
     workspace = x.workspace_path.strip() if x.workspace_path else None
     workspace_key = normalize_workspace(workspace)
-    normalized = name.casefold(); c=db(); existing=c.execute('SELECT * FROM projects WHERE user_id=? AND normalized_name=? AND COALESCE(workspace_key, \'\')=?', ('local-user', normalized, workspace_key)).fetchone()
+    identity_key = x.workspace_identity_key.strip() if x.workspace_identity_key else None
+    normalized = name.casefold(); c=db(); existing = c.execute('SELECT * FROM projects WHERE user_id=? AND workspace_identity_key=?', ('local-user', identity_key)).fetchone() if identity_key else None
+    if not existing: existing=c.execute('SELECT * FROM projects WHERE user_id=? AND normalized_name=? AND COALESCE(workspace_key, \'\')=?', ('local-user', normalized, workspace_key)).fetchone()
     if existing: return dict(existing)
     pid=str(uuid.uuid4()); slug=re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-') or pid[:8]
     if c.execute('SELECT 1 FROM projects WHERE slug=?', (slug,)).fetchone(): slug=f'{slug}-{pid[:8]}'
     timestamp=now()
-    try: c.execute('INSERT INTO projects(id,user_id,name,slug,workspace_path,workspace_key,normalized_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',(pid,'local-user',name,slug,workspace,workspace_key,normalized,timestamp,timestamp))
-    except sqlite3.IntegrityError: raise HTTPException(409, 'Project already exists')
+    try: c.execute('INSERT INTO projects(id,user_id,name,slug,workspace_path,workspace_key,normalized_name,workspace_identity_key,workspace_identity_version,workspace_kind,canonical_workspace_uri,last_seen_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(pid,'local-user',name,slug,workspace,workspace_key,normalized,identity_key,x.workspace_identity_version,x.workspace_kind,x.canonical_workspace_uri,timestamp,timestamp,timestamp))
+    except sqlite3.IntegrityError:
+        existing=c.execute('SELECT * FROM projects WHERE user_id=? AND workspace_identity_key=?', ('local-user', identity_key)).fetchone()
+        if existing: return dict(existing)
+        raise HTTPException(409, 'Project already exists')
     return dict(c.execute('SELECT * FROM projects WHERE id=?',(pid,)).fetchone())
+
+@app.post('/projects/resolve')
+def resolve_project(x: ProjectIn, authorization: Optional[str]=Header(None)):
+    """Atomic identity-first project resolution; compatible with legacy path rows."""
+    auth(authorization)
+    if not x.workspace_identity_key: raise HTTPException(422, 'workspace_identity_key is required')
+    c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        row=c.execute('SELECT * FROM projects WHERE user_id=? AND workspace_identity_key=?', ('local-user', x.workspace_identity_key)).fetchone()
+        matched='workspace_identity'
+        if not row and x.workspace_path:
+            row=c.execute('SELECT * FROM projects WHERE user_id=? AND workspace_key=?', ('local-user', normalize_workspace(x.workspace_path))).fetchone()
+            if row:
+                c.execute('UPDATE projects SET workspace_identity_key=?,workspace_identity_version=?,workspace_kind=?,canonical_workspace_uri=?,last_seen_at=?,updated_at=? WHERE id=?', (x.workspace_identity_key,x.workspace_identity_version,x.workspace_kind,x.canonical_workspace_uri,now(),now(),row['id']))
+                matched='legacy_workspace_path'
+        if not row:
+            name=x.name.strip(); normalized=name.casefold(); workspace=x.workspace_path.strip() if x.workspace_path else None; workspace_key=normalize_workspace(workspace)
+            pid=str(uuid.uuid4()); slug=re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-') or pid[:8]
+            if c.execute('SELECT 1 FROM projects WHERE slug=?',(slug,)).fetchone(): slug=f'{slug}-{pid[:8]}'
+            stamp=now()
+            c.execute('INSERT INTO projects(id,user_id,name,slug,workspace_path,workspace_key,normalized_name,workspace_identity_key,workspace_identity_version,workspace_kind,canonical_workspace_uri,last_seen_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(pid,'local-user',name,slug,workspace,workspace_key,normalized,x.workspace_identity_key,x.workspace_identity_version,x.workspace_kind,x.canonical_workspace_uri,stamp,stamp,stamp))
+            c.commit(); return {'project': dict(c.execute('SELECT * FROM projects WHERE id=?',(pid,)).fetchone()), 'created': True, 'matched_by': 'created'}
+        c.execute('UPDATE projects SET last_seen_at=?,updated_at=? WHERE id=?',(now(),now(),row['id'])); c.commit()
+        return {'project': dict(c.execute('SELECT * FROM projects WHERE id=?',(row['id'],)).fetchone()), 'created': False, 'matched_by': matched}
+    except Exception:
+        c.rollback(); raise
 
 def task_output(row: sqlite3.Row) -> dict:
     out=dict(row); out['tags']=json.loads(out.get('tags') or '[]'); return out

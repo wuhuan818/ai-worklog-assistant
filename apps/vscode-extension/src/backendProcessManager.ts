@@ -12,6 +12,7 @@ export interface BackendProcessManagerOptions {
   executablePath: string | (() => string);
   port: number;
   dataDir: string;
+  runtimeMode?: 'production' | 'development' | 'test';
   startupTimeoutMs?: number;
   healthRequestTimeoutMs?: number;
   pollIntervalMs?: number;
@@ -155,6 +156,8 @@ export class BackendProcessManager {
           WORKLOG_SESSION_TOKEN: this.token,
           WORKLOG_PORT: String(this.activePort),
           WORKLOG_DATA_DIR: this.options.dataDir,
+          AI_WORKLOG_DATA_DIR: this.options.dataDir,
+          AI_WORKLOG_RUNTIME_MODE: this.options.runtimeMode || 'production',
         },
         windowsHide: true,
       });

@@ -19,3 +19,7 @@ F5 后端自动启动回归已修复：根因是激活流程缺少 `ServerManage
 # Resolved: intermittent Bug button flicker
 
 The sidebar previously mixed timer refreshes with independent backend/task/Bug button writes.  It now uses a fingerprinted state snapshot and timer-only updates; this is covered by the Bug Button Stability E2E.
+# Stage 06
+
+Possible moved workspaces are not silently rebound. The user must explicitly
+choose any future rebinding workflow; current identity safety favors isolation.

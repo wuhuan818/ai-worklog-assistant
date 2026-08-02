@@ -162,6 +162,25 @@ def test_project_workspace_identity_and_list_order(client, headers):
     assert client.get('/projects', headers=headers).status_code == 200
 
 
+def test_identity_resolution_is_stable_and_does_not_merge_same_names(client, headers):
+    first = client.post('/projects/resolve', headers=headers, json={'name': 'API', 'workspace_path': 'D:\\Work\\API', 'workspace_identity_key': 'a' * 64, 'workspace_identity_version': 1, 'workspace_kind': 'folder', 'canonical_workspace_uri': 'file:///d:/work/api'}).json()
+    again = client.post('/projects/resolve', headers=headers, json={'name': 'Renamed', 'workspace_path': 'd:/work/api/', 'workspace_identity_key': 'a' * 64, 'workspace_identity_version': 1, 'workspace_kind': 'folder'}).json()
+    other = client.post('/projects/resolve', headers=headers, json={'name': 'API', 'workspace_path': 'D:\\Other\\API', 'workspace_identity_key': 'b' * 64, 'workspace_identity_version': 1, 'workspace_kind': 'folder'}).json()
+    assert first['created'] is True
+    assert again['created'] is False and again['project']['id'] == first['project']['id']
+    assert other['project']['id'] != first['project']['id']
+
+
+def test_identity_resolution_is_atomic(client, headers):
+    responses = []
+    def resolve():
+        responses.append(client.post('/projects/resolve', headers=headers, json={'name': 'Concurrent identity', 'workspace_path': 'D:\\Concurrent', 'workspace_identity_key': 'c' * 64, 'workspace_identity_version': 1, 'workspace_kind': 'folder'}))
+    threads = [threading.Thread(target=resolve) for _ in range(2)]
+    [thread.start() for thread in threads]; [thread.join() for thread in threads]
+    assert all(response.status_code == 200 for response in responses)
+    assert len({response.json()['project']['id'] for response in responses}) == 1
+
+
 def test_task_lifecycle_active_end_duration_and_persistence(client, headers, tmp_path):
     project = client.post('/projects', headers=headers, json={'name': 'Persistent'}).json()
     started = client.post('/tasks', headers=headers, json={'name': 'Lifecycle', 'project_id': project['id'], 'tags': [' ui ', 'UI', 'backend']}).json()

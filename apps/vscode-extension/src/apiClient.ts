@@ -1,4 +1,5 @@
-export interface ProjectView { id: string; user_id: string; name: string; workspace_path?: string | null; created_at: string; updated_at: string; }
+export interface ProjectView { id: string; user_id: string; name: string; workspace_path?: string | null; workspace_identity_key?: string | null; created_at: string; updated_at: string; }
+export interface ProjectResolution { project: ProjectView; created: boolean; matched_by: string; }
 export interface TaskView { id: string; project_id: string; name: string; description?: string; requirement_id?: string; status: string; started_at: string; ended_at?: string | null; duration_seconds?: number | null; tags: string[]; }
 export interface ActiveTaskResponse { task: TaskView | null; }
 export type WorklogEventType = 'file_changed'|'file_saved'|'diagnostics_changed'|'vscode_task_started'|'vscode_task_process_started'|'vscode_task_process_ended'|'vscode_task_ended'|'debug_session_started'|'debug_session_terminated'|'debug_active_session_changed'|'manual_note'|'bug_note_added';
@@ -34,7 +35,8 @@ export class ApiClient {
 
   health(): Promise<{ status: string; service: string }> { return this.request('/health', { headers: {} }); }
   listProjects(): Promise<ProjectView[]> { return this.request('/projects'); }
-  createProject(input: { name: string; workspace_path?: string }): Promise<ProjectView> { return this.request('/projects', { method: 'POST', body: JSON.stringify(input) }); }
+  createProject(input: { name: string; workspace_path?: string; workspace_identity_key?: string; workspace_identity_version?: number; workspace_kind?: string; canonical_workspace_uri?: string }): Promise<ProjectView> { return this.request('/projects', { method: 'POST', body: JSON.stringify(input) }); }
+  resolveProject(input: { name: string; workspace_path?: string; workspace_identity_key: string; workspace_identity_version: number; workspace_kind: string; canonical_workspace_uri?: string }): Promise<ProjectResolution> { return this.request('/projects/resolve', { method: 'POST', body: JSON.stringify(input) }); }
   async activeTask(): Promise<TaskView | null> {
     const response = await this.request<ActiveTaskResponse>('/tasks/active');
     if (!response || !Object.prototype.hasOwnProperty.call(response, 'task') || (response.task !== null && typeof response.task !== 'object')) {

@@ -11,6 +11,7 @@ export class EventCaptureController implements vscode.Disposable {
   private readonly savedBaselines = new Map<string, string>();
   private readonly buffer: EventBuffer;
   private taskId?: string;
+  private enabled = false;
   constructor(
     private readonly state: TaskState,
     private readonly api: () => ApiClient | undefined,
@@ -31,7 +32,7 @@ export class EventCaptureController implements vscode.Disposable {
   }
   private emit(type: WorklogEventType, uri: vscode.Uri | undefined, payload: Record<string, unknown>): void {
     const task = this.state.task;
-    if (!task || task.status !== 'active' || !this.api()) return;
+    if (!this.enabled || !task || task.status !== 'active' || !this.api()) return;
     const file = uri ? relativeFilePath(uri) : {};
     if (uri && !file.filePath) return;
 
@@ -51,6 +52,7 @@ export class EventCaptureController implements vscode.Disposable {
   }
   async flush(): Promise<void> { await this.buffer.flush(); }
   get pendingCount(): number { return this.buffer.size; }
+  setEnabled(value: boolean): void { this.enabled = value; if (!value) this.buffer.clear(); }
   record(type: WorklogEventType, payload: Record<string, unknown> = {}): void { this.emit(type, undefined, payload); }
   dispose(): void { this.subscriptions.forEach(s => s.dispose()); void this.buffer.dispose(); }
 }

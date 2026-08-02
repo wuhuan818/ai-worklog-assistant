@@ -27,9 +27,11 @@ export function resolveBackendExecutable(options: BackendPathOptions): string {
     candidates.push(path.join(options.workspaceRoot, 'artifacts', 'backend', 'ai-worklog-server.exe'));
   }
 
+  candidates.push(path.join(options.extensionPath, '..', '..', 'artifacts', 'backend', 'ai-worklog-server.exe'));
+  // Development uses the freshly built repository artifact.  A packaged VSIX
+  // has no repository artifact, so it naturally falls back to its bundled EXE.
   candidates.push(path.join(options.extensionPath, 'server', 'ai-worklog-server.exe'));
   candidates.push(path.join(options.extensionPath, 'artifacts', 'backend', 'ai-worklog-server.exe'));
-  candidates.push(path.join(options.extensionPath, '..', '..', 'artifacts', 'backend', 'ai-worklog-server.exe'));
 
   const normalized = unique(candidates);
   const match = normalized.find(candidate => exists(candidate));

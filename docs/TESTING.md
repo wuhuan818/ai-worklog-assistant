@@ -38,3 +38,8 @@ The Extension Host E2E additionally verifies the UI state, collectors and pendin
 # Bug button stability
 
 `node test/runBugLifecycleE2E.js` verifies a stable active Bug snapshot over five seconds, including a stable backend PID.  Unit tests cover snapshot fingerprint de-duplication and the single button-state matrix.
+# Stage 06 data continuity
+
+Run `scripts\verify-data-continuity.ps1` for the isolated multi-process
+Extension Host verification.  It produces the ignored machine-readable report
+`artifacts/test-results/stage06-data-continuity.json`.

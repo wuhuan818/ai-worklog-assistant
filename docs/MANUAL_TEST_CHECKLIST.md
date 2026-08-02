@@ -110,3 +110,8 @@ View lifecycle check: after switching away and back to AI Worklog, confirm backe
 # Bug button stability follow-up
 
 Create and activate a Bug, observe the sidebar for ten seconds, switch away and back, then pause or resolve it and observe disabled buttons for another ten seconds.  Timer text may update; button state must remain visually stable until a business action changes it.
+# Stage 06
+
+Leave a task and active Bug open, close the Extension Development Host, then
+reopen the same workspace and confirm restoration. Open another workspace with
+the same data directory and confirm the conflict state and no captured event.
