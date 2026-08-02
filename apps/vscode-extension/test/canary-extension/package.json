@@ -1,0 +1,8 @@
+{
+  "name": "ai-worklog-test-canary",
+  "displayName": "AI Worklog Test Canary",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.85.0" },
+  "main": "./extension.js",
+  "activationEvents": []
+}
