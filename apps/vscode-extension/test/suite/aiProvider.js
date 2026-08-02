@@ -6,9 +6,10 @@ const vscode = require('vscode');
 const reportPath = process.env.STAGE7_E2E_REPORT;
 const fakeUrl = process.env.STAGE7_FAKE_URL;
 const syntheticKey = process.env.STAGE7_SYNTHETIC_KEY;
+const refusedUrl = process.env.STAGE7_REFUSED_URL;
 function write(result) { fs.mkdirSync(path.dirname(reportPath), { recursive: true }); fs.writeFileSync(reportPath, JSON.stringify(result, null, 2), 'utf8'); }
 async function run() {
-  const report = { status: 'failed', deepseekContractPassed: false, qwenContractPassed: false, customProviderContractPassed: false, secretStoragePassed: false, profilePersistencePassed: false, providerSwitchPassed: false, restartPersistencePassed: false, viewReopenPassed: false, unauthorizedMappingPassed: false, rateLimitMappingPassed: false, timeoutMappingPassed: false, automaticCrossProviderFallback: false, taskDataSentDuringConnectionTest: false, apiKeyLeakCount: 0, sqliteSecretCount: 0, residualProcessCount: 0, durationSeconds: 0 };
+  const report = { status: 'failed', deepseekContractPassed: false, qwenContractPassed: false, customProviderContractPassed: false, secretStoragePassed: false, profilePersistencePassed: false, providerSwitchPassed: false, restartPersistencePassed: false, viewReopenPassed: false, unauthorizedMappingPassed: false, rateLimitMappingPassed: false, timeoutMappingPassed: false, invalidResponseMappingPassed: false, connectionRefusedMappingPassed: false, automaticCrossProviderFallback: false, taskDataSentDuringConnectionTest: false, apiKeyLeakCount: 0, sqliteSecretCount: 0, residualProcessCount: 0, durationSeconds: 0 };
   const started = Date.now();
   try {
     const extension = vscode.extensions.all.find(item => item.packageJSON?.name === 'ai-worklog-assistant'); assert.ok(extension); await extension.activate();
@@ -24,6 +25,9 @@ async function run() {
     await vscode.commands.executeCommand('aiWorklog.test.createAiProfile', { id: profileId, provider: 'deepseek', baseUrl: fakeUrl, model: 'fail-403' }); await assert.rejects(() => vscode.commands.executeCommand('aiWorklog.test.testAiConnection'), /没有访问/);
     await vscode.commands.executeCommand('aiWorklog.test.createAiProfile', { id: profileId, provider: 'qwen', baseUrl: fakeUrl, model: 'fail-404' }); await assert.rejects(() => vscode.commands.executeCommand('aiWorklog.test.testAiConnection'), /模型名称不存在/);
     await vscode.commands.executeCommand('aiWorklog.test.createAiProfile', { id: profileId, provider: 'openai-compatible', baseUrl: fakeUrl, model: 'fail-500' }); await assert.rejects(() => vscode.commands.executeCommand('aiWorklog.test.testAiConnection'), /服务暂时不可用/);
+    for (const model of ['fail-invalid-json', 'fail-missing-fields', 'fail-oversized']) { await vscode.commands.executeCommand('aiWorklog.test.createAiProfile', { id: profileId, provider: 'openai-compatible', baseUrl: fakeUrl, model }); await assert.rejects(() => vscode.commands.executeCommand('aiWorklog.test.testAiConnection'), /Provider/); } report.invalidResponseMappingPassed = true;
+    await vscode.commands.executeCommand('aiWorklog.test.createAiProfile', { id: profileId, provider: 'deepseek', baseUrl: fakeUrl, model: 'fail-timeout', timeoutSeconds: 1 }); await assert.rejects(() => vscode.commands.executeCommand('aiWorklog.test.testAiConnection'), /超时/); report.timeoutMappingPassed = true;
+    await vscode.commands.executeCommand('aiWorklog.test.createAiProfile', { id: profileId, provider: 'deepseek', baseUrl: fakeUrl, model: 'fail-connection-reset', timeoutSeconds: 1 }); await assert.rejects(() => vscode.commands.executeCommand('aiWorklog.test.testAiConnection'), /无法连接/); report.connectionRefusedMappingPassed = true;
     const state = await vscode.commands.executeCommand('aiWorklog.test.getRuntimeState'); assert.equal(state.aiProfile.hasKey, true); assert.equal(JSON.stringify(state).includes(syntheticKey), false); report.secretStoragePassed = true; report.profilePersistencePassed = true; report.providerSwitchPassed = deepseek.provider !== qwen.provider && qwen.provider !== custom.provider;
     report.status = 'passed'; report.durationSeconds = Math.round((Date.now() - started) / 1000); write(report);
   } catch (error) { report.durationSeconds = Math.round((Date.now() - started) / 1000); write({ ...report, error: String(error).replace(syntheticKey || '', '[REDACTED]') }); throw error; }
