@@ -14,3 +14,5 @@
 F5 后端自动启动回归已修复：根因是激活流程缺少 `ServerManager.start()` 调用，当前由激活协调器自动发起，且不依赖侧边栏可见性；仍需用户完成一次真实 Extension Development Host 人工确认。
 
 已解决：AI Worklog 侧边栏重新显示后状态回退为“启动中”。View 现在从 ServerManager 当前状态刷新，视图生命周期不会停止或重置后端，旧异步渲染会被版本号丢弃。
+
+阶段 5 仍使用固定 `local-user`，不提供跨设备同步、协作分配、GitHub Issue 同步、自动分类或相似 Bug 匹配。Bug 描述、备注与解决内容受长度限制，并且日志只记录 ID、状态和计数，不记录全文。扩展进程异常退出前尚未 flush 的事件仍可能丢失；已入 Buffer 的 Bug ID 不会被后续切换改变。

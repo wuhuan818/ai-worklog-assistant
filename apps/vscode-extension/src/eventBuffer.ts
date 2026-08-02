@@ -1,6 +1,18 @@
 import { WorklogEventType } from './apiClient';
 
-export interface BufferedEvent { client_event_id: string; event_type: WorklogEventType; source: 'vscode'; taskId: string; [key: string]: unknown; }
+/**
+ * The bug selection is deliberately part of a buffered event, rather than a
+ * value looked up while flushing.  A flush may happen after the user switches
+ * or resolves a bug, but that must not change ownership of an earlier event.
+ */
+export interface BufferedEvent {
+  client_event_id: string;
+  event_type: WorklogEventType;
+  source: 'vscode';
+  taskId: string;
+  bug_id?: string;
+  [key: string]: unknown;
+}
 export class EventBuffer {
   private readonly items: BufferedEvent[] = [];
   private flushing?: Promise<void>;

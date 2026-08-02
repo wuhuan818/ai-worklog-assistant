@@ -28,6 +28,8 @@ def db():
       CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT UNIQUE);
       CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,name TEXT,description TEXT,requirement_id TEXT,tags TEXT,status TEXT,started_at TEXT,ended_at TEXT);
       CREATE TABLE IF NOT EXISTS bugs(id TEXT PRIMARY KEY,user_id TEXT,task_id TEXT,title TEXT,status TEXT,created_at TEXT,resolved_at TEXT,notes TEXT,root_cause TEXT,solution TEXT);
+      CREATE TABLE IF NOT EXISTS bug_notes(id TEXT PRIMARY KEY, client_note_id TEXT NOT NULL UNIQUE, user_id TEXT NOT NULL, task_id TEXT NOT NULL, bug_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(bug_id) REFERENCES bugs(id), FOREIGN KEY(task_id) REFERENCES tasks(id));
+      CREATE TABLE IF NOT EXISTS bug_resolutions(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, task_id TEXT NOT NULL, bug_id TEXT NOT NULL, resolution_summary TEXT NOT NULL, root_cause TEXT, verification TEXT, created_at TEXT NOT NULL, FOREIGN KEY(bug_id) REFERENCES bugs(id), FOREIGN KEY(task_id) REFERENCES tasks(id));
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,task_id TEXT,bug_id TEXT,type TEXT,timestamp TEXT,payload TEXT,sensitivity TEXT);
       CREATE TABLE IF NOT EXISTS worklog_events(id TEXT PRIMARY KEY,client_event_id TEXT NOT NULL UNIQUE,user_id TEXT NOT NULL,task_id TEXT NOT NULL,event_type TEXT NOT NULL,source TEXT NOT NULL,workspace_path TEXT,file_path TEXT,occurred_at TEXT NOT NULL,created_at TEXT NOT NULL,sequence INTEGER NOT NULL,payload_json TEXT NOT NULL,FOREIGN KEY(task_id) REFERENCES tasks(id));
       CREATE TABLE IF NOT EXISTS summary_drafts(id TEXT PRIMARY KEY,task_id TEXT,status TEXT,content TEXT,created_at TEXT,updated_at TEXT);
@@ -44,20 +46,75 @@ def db():
     add_column('tasks', 'duration_seconds', 'INTEGER')
     add_column('tasks', 'created_at', 'TEXT')
     add_column('tasks', 'updated_at', 'TEXT')
+    # Stage 5 is deliberately additive: older databases retain every row.
+    for name, declaration in (
+        ('project_id', 'TEXT'), ('description', 'TEXT'), ('severity', 'TEXT'),
+        ('category', 'TEXT'), ('source', 'TEXT'), ('external_reference', 'TEXT'),
+        ('tags_json', "TEXT NOT NULL DEFAULT '[]'"), ('updated_at', 'TEXT'),
+        ('activated_at', 'TEXT'), ('paused_at', 'TEXT'), ('reopened_at', 'TEXT'),
+        ('active_started_at', 'TEXT'), ('total_active_seconds', 'INTEGER NOT NULL DEFAULT 0'),
+    ): add_column('bugs', name, declaration)
+    add_column('worklog_events', 'bug_id', 'TEXT')
     timestamp = now()
     c.execute("UPDATE projects SET normalized_name=lower(trim(name)) WHERE normalized_name IS NULL")
     c.execute("UPDATE projects SET workspace_key=lower(trim(workspace_path)) WHERE workspace_key IS NULL")
     c.execute("UPDATE projects SET created_at=COALESCE(created_at, ?), updated_at=COALESCE(updated_at, created_at, ?) ", (timestamp, timestamp))
     c.execute("UPDATE tasks SET created_at=COALESCE(created_at, started_at, ?), updated_at=COALESCE(updated_at, ended_at, started_at, ?) ", (timestamp, timestamp))
+    c.execute("UPDATE bugs SET project_id=(SELECT project_id FROM tasks WHERE tasks.id=bugs.task_id) WHERE project_id IS NULL")
+    c.execute("UPDATE bugs SET severity=COALESCE(severity, 'medium'), tags_json=COALESCE(tags_json, '[]'), updated_at=COALESCE(updated_at, created_at, ?), total_active_seconds=COALESCE(total_active_seconds, 0)", (timestamp,))
+    # Older releases allowed multiple active bugs. Preserve them while repairing the
+    # invariant before creating the partial unique index: newest remains active,
+    # every other prior active bug becomes paused.
+    duplicate_active_tasks = c.execute("SELECT task_id FROM bugs WHERE status='active' GROUP BY task_id HAVING COUNT(*) > 1").fetchall()
+    for item in duplicate_active_tasks:
+        rows = c.execute("SELECT id FROM bugs WHERE task_id=? AND status='active' ORDER BY created_at DESC, id DESC", (item['task_id'],)).fetchall()
+        for old in rows[1:]:
+            c.execute("UPDATE bugs SET status='paused', paused_at=?, updated_at=?, active_started_at=NULL WHERE id=?", (timestamp, timestamp, old['id']))
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user_name_workspace ON projects(user_id, normalized_name, COALESCE(workspace_key, \'\'))')
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_tasks_one_active ON tasks(user_id) WHERE status=\'active\'')
     c.execute('CREATE INDEX IF NOT EXISTS ix_worklog_events_task_sequence ON worklog_events(task_id, sequence, occurred_at, id)')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_worklog_events_bug ON worklog_events(task_id, bug_id, sequence)')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_bugs_task ON bugs(task_id, status, updated_at)')
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_bugs_one_active ON bugs(task_id) WHERE status='active'")
+    c.execute('CREATE INDEX IF NOT EXISTS ix_bug_notes_bug ON bug_notes(bug_id, created_at, id)')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_bug_resolutions_bug ON bug_resolutions(bug_id, created_at, id)')
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); return c
 def auth(authorization: Optional[str]):
     if authorization != f'Bearer {TOKEN}': raise HTTPException(401, 'Invalid session token')
 class ProjectIn(BaseModel): name: str = Field(min_length=1); workspace_path: Optional[str] = None
 class TaskIn(BaseModel): name: str; project: Optional[str] = None; project_id: Optional[str] = None; description: str = ''; requirement_id: str = ''; tags: List[str] = []
-class BugIn(BaseModel): title: str
+class BugIn(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=4000)
+    severity: str = 'medium'
+    category: Optional[str] = Field(None, max_length=200)
+    source: Optional[str] = Field(None, max_length=200)
+    external_reference: Optional[str] = Field(None, max_length=500)
+    tags: List[str] = []
+    activate_immediately: bool = False
+    @validator('title')
+    def title_not_blank(cls, value):
+        if not value.strip(): raise ValueError('title must not be blank')
+        return value.strip()
+    @validator('severity')
+    def valid_severity(cls, value):
+        if value not in {'low','medium','high','critical'}: raise ValueError('severity must be low, medium, high, or critical')
+        return value
+class BugNoteIn(BaseModel):
+    client_note_id: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=4000)
+    @validator('text')
+    def note_not_blank(cls, value):
+        if not value.strip(): raise ValueError('text must not be blank')
+        return value.strip()
+class BugResolutionIn(BaseModel):
+    resolution_summary: str = Field(min_length=1, max_length=4000)
+    root_cause: Optional[str] = Field(None, max_length=4000)
+    verification: Optional[str] = Field(None, max_length=4000)
+    @validator('resolution_summary')
+    def summary_not_blank(cls, value):
+        if not value.strip(): raise ValueError('resolution_summary must not be blank')
+        return value.strip()
 class EventIn(BaseModel): userId: str='local-user'; projectId: str; taskId: str; bugId: Optional[str]=None; source: str='vscode'; type: str; timestamp: str; payload: Dict[str,Any]={}; sensitivity: str='normal'
 EVENT_TYPES = {'file_changed','file_saved','diagnostics_changed','vscode_task_started','vscode_task_process_started','vscode_task_process_ended','vscode_task_ended','debug_session_started','debug_session_terminated','debug_active_session_changed','manual_note'}
 class CapturedEvent(BaseModel):
@@ -66,6 +123,9 @@ class CapturedEvent(BaseModel):
     source: str = 'vscode'
     workspace_path: Optional[str] = None
     file_path: Optional[str] = None
+    bug_id: Optional[str] = Field(None, alias='bugId')
+    class Config:
+        allow_population_by_field_name = True
     occurred_at: str
     payload: Dict[str, Any] = {}
     @validator('occurred_at')
@@ -150,6 +210,11 @@ def end_task(task_id: str, authorization: Optional[str]=Header(None)):
         if not r: raise HTTPException(404,'Task not found')
         if r['status'] != 'active': raise HTTPException(409, f"任务已结束：{r['name']} ({task_id})")
         ended=now(); duration=max(0, int((datetime.fromisoformat(ended)-datetime.fromisoformat(r['started_at'])).total_seconds()))
+        # Pause before completing in the same transaction; a completed task can never retain an active bug.
+        active_bug = c.execute("SELECT * FROM bugs WHERE task_id=? AND status='active'", (task_id,)).fetchone()
+        if active_bug:
+            elapsed = active_seconds(active_bug, ended)
+            c.execute("UPDATE bugs SET status='paused', paused_at=?, updated_at=?, active_started_at=NULL, total_active_seconds=? WHERE id=?", (ended, ended, elapsed, active_bug['id']))
         c.execute('UPDATE tasks SET status=?,ended_at=?,duration_seconds=?,updated_at=? WHERE id=?',('completed',ended,duration,ended,task_id)); c.commit()
     except Exception:
         c.rollback(); raise
@@ -161,7 +226,7 @@ def event_task(task_id: str, c: sqlite3.Connection):
     return row
 
 def event_output(row: sqlite3.Row) -> dict:
-    out = dict(row); out['payload'] = json.loads(out.pop('payload_json')); out['clientEventId'] = out.pop('client_event_id'); out['eventType'] = out.pop('event_type'); out['occurredAt'] = out.pop('occurred_at'); out['createdAt'] = out.pop('created_at'); out['workspacePath'] = out.pop('workspace_path'); out['filePath'] = out.pop('file_path'); out['sequence'] = int(out['sequence']); return out
+    out = dict(row); out['payload'] = json.loads(out.pop('payload_json')); out['clientEventId'] = out.pop('client_event_id'); out['eventType'] = out.pop('event_type'); out['occurredAt'] = out.pop('occurred_at'); out['createdAt'] = out.pop('created_at'); out['workspacePath'] = out.pop('workspace_path'); out['filePath'] = out.pop('file_path'); out['bugId'] = out.get('bug_id'); out['sequence'] = int(out['sequence']); return out
 
 @app.post('/tasks/{task_id}/events/batch')
 def batch_events(task_id: str, batch: EventBatch, authorization: Optional[str]=Header(None)):
@@ -177,9 +242,12 @@ def batch_events(task_id: str, batch: EventBatch, authorization: Optional[str]=H
             if len(payload_json.encode('utf-8')) > 262144: raise HTTPException(400, 'event payload exceeds 256 KB')
             existing = c.execute('SELECT id FROM worklog_events WHERE client_event_id=?', (event.client_event_id,)).fetchone()
             if existing: duplicates += 1; ids.append(existing['id']); continue
+            if getattr(event, 'bug_id', None):
+                bug_row = c.execute('SELECT id FROM bugs WHERE id=? AND task_id=? AND user_id=?', (event.bug_id, task_id, 'local-user')).fetchone()
+                if not bug_row: raise HTTPException(422, 'bug_id must belong to this task')
             sequence = c.execute('SELECT COALESCE(MAX(sequence),0)+1 FROM worklog_events WHERE task_id=?', (task_id,)).fetchone()[0]
             eid = str(uuid.uuid4()); created = now()
-            c.execute('INSERT INTO worklog_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', (eid,event.client_event_id,'local-user',task_id,event.event_type,event.source,event.workspace_path,event.file_path,event.occurred_at,created,sequence,payload_json))
+            c.execute('INSERT INTO worklog_events(id,client_event_id,user_id,task_id,event_type,source,workspace_path,file_path,occurred_at,created_at,sequence,payload_json,bug_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (eid,event.client_event_id,'local-user',task_id,event.event_type,event.source,event.workspace_path,event.file_path,event.occurred_at,created,sequence,payload_json,getattr(event, 'bug_id', None)))
             inserted += 1; ids.append(eid)
         c.commit()
     except Exception:
@@ -187,7 +255,7 @@ def batch_events(task_id: str, batch: EventBatch, authorization: Optional[str]=H
     return {'inserted': inserted, 'duplicates': duplicates, 'event_ids': ids}
 
 @app.get('/tasks/{task_id}/events')
-def captured_events(task_id: str, limit: int=100, offset: int=0, event_type: Optional[str]=None, authorization: Optional[str]=Header(None)):
+def captured_events(task_id: str, limit: int=100, offset: int=0, event_type: Optional[str]=None, bug_id: Optional[str]=None, authorization: Optional[str]=Header(None)):
     auth(authorization)
     if limit < 1 or limit > 500: raise HTTPException(400, 'limit must be between 1 and 500')
     if offset < 0: raise HTTPException(400, 'offset must be non-negative')
@@ -195,6 +263,8 @@ def captured_events(task_id: str, limit: int=100, offset: int=0, event_type: Opt
     if not row: raise HTTPException(404,'Task not found')
     where='task_id=?'; params=[task_id]
     if event_type: where += ' AND event_type=?'; params.append(event_type)
+    if bug_id:
+        where += ' AND bug_id=?'; params.append(bug_id)
     total=c.execute(f'SELECT COUNT(*) FROM worklog_events WHERE {where}',params).fetchone()[0]
     rows=c.execute(f'SELECT * FROM worklog_events WHERE {where} ORDER BY sequence ASC, occurred_at ASC, id ASC LIMIT ? OFFSET ?',params+[limit,offset]).fetchall()
     if not rows and total == 0:
@@ -216,20 +286,166 @@ def events(task_id: str, authorization: Optional[str]=Header(None)):
     auth(authorization); return [dict(dict(r), payload=json.loads(r['payload'])) for r in db().execute('SELECT * FROM events WHERE task_id=? ORDER BY timestamp',(task_id,))]
 @app.post('/events')
 def add_event(x: EventIn, authorization: Optional[str]=Header(None)):
-    auth(authorization); c=db(); eid=x.__dict__.get('id') or str(uuid.uuid4()); c.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',(eid,x.userId,x.projectId,x.taskId,x.bugId,x.type,x.timestamp,json.dumps(filter_sensitive(x.payload),ensure_ascii=False),x.sensitivity)); c.commit(); return {'id':eid}
+    auth(authorization); c=db(); task_row=event_task(x.taskId,c)
+    if task_row['project_id'] != x.projectId: raise HTTPException(422, 'projectId must match task project')
+    if x.bugId and not c.execute('SELECT 1 FROM bugs WHERE id=? AND task_id=? AND user_id=?',(x.bugId,x.taskId,'local-user')).fetchone(): raise HTTPException(422, 'bugId must belong to this task')
+    eid=x.__dict__.get('id') or str(uuid.uuid4()); c.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',(eid,x.userId,x.projectId,x.taskId,x.bugId,x.type,x.timestamp,json.dumps(filter_sensitive(x.payload),ensure_ascii=False),x.sensitivity)); c.commit(); return {'id':eid}
+def active_seconds(row: sqlite3.Row, timestamp: str) -> int:
+    total = int(row['total_active_seconds'] or 0)
+    if row['active_started_at']:
+        total += max(0, int((datetime.fromisoformat(timestamp) - datetime.fromisoformat(row['active_started_at'])).total_seconds()))
+    return total
+
+def bug_output(row: sqlite3.Row) -> dict:
+    out = dict(row)
+    out['tags'] = json.loads(out.pop('tags_json') or '[]')
+    out['total_active_seconds'] = int(out.get('total_active_seconds') or 0)
+    return out
+
+def task_for_bug(c: sqlite3.Connection, task_id: str, writable: bool = False) -> sqlite3.Row:
+    task_row = c.execute('SELECT * FROM tasks WHERE id=? AND user_id=?', (task_id, 'local-user')).fetchone()
+    if not task_row: raise HTTPException(404, 'Task not found')
+    if writable and task_row['status'] != 'active': raise HTTPException(409, 'Cannot modify bugs for a completed task')
+    return task_row
+
+def owned_bug(c: sqlite3.Connection, task_id: str, bug_id: str) -> sqlite3.Row:
+    row = c.execute('SELECT * FROM bugs WHERE id=? AND task_id=? AND user_id=?', (bug_id, task_id, 'local-user')).fetchone()
+    if not row: raise HTTPException(404, 'Bug not found')
+    return row
+
+def normalized_tags(tags: List[str]) -> List[str]:
+    result: List[str] = []
+    for tag in tags:
+        value = tag.strip()
+        if value and value.casefold() not in {item.casefold() for item in result}: result.append(value)
+    return result
+
 @app.post('/tasks/{task_id}/bugs')
-def create_bug(task_id: str,x: BugIn,authorization: Optional[str]=Header(None)):
-    auth(authorization); bid=str(uuid.uuid4()); c=db(); c.execute('INSERT INTO bugs VALUES (?,?,?,?,?,?,?,?,?,?)',(bid,'local-user',task_id,x.title,'active',now(),None,'','','')); c.commit(); return bug(bid,authorization)
+def create_bug(task_id: str, x: BugIn, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        task_row = task_for_bug(c, task_id, writable=True); timestamp=now(); bid=str(uuid.uuid4())
+        status = 'open'; active_started_at = None; activated_at = None
+        if x.activate_immediately:
+            old = c.execute("SELECT * FROM bugs WHERE task_id=? AND status='active'", (task_id,)).fetchone()
+            if old:
+                c.execute("UPDATE bugs SET status='paused',paused_at=?,updated_at=?,active_started_at=NULL,total_active_seconds=? WHERE id=?", (timestamp,timestamp,active_seconds(old,timestamp),old['id']))
+            status='active'; active_started_at=timestamp; activated_at=timestamp
+        c.execute('''INSERT INTO bugs(id,user_id,project_id,task_id,title,description,severity,category,source,external_reference,tags_json,status,created_at,updated_at,activated_at,active_started_at,total_active_seconds)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (bid,'local-user',task_row['project_id'],task_id,x.title,x.description,x.severity,x.category,x.source,x.external_reference,json.dumps(normalized_tags(x.tags),ensure_ascii=False),status,timestamp,timestamp,activated_at,active_started_at,0))
+        c.commit()
+    except Exception:
+        c.rollback(); raise
+    return bug_output(owned_bug(db(), task_id, bid))
+
 @app.get('/tasks/{task_id}/bugs')
-def bugs(task_id:str,authorization:Optional[str]=Header(None)):
-    auth(authorization); return [dict(r) for r in db().execute('SELECT * FROM bugs WHERE task_id=? ORDER BY created_at',(task_id,))]
+def bugs(task_id: str, status: Optional[str]=None, severity: Optional[str]=None, limit: int=100, offset: int=0, authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    if status and status not in {'open','active','paused','resolved'}: raise HTTPException(422, 'Invalid bug status')
+    if severity and severity not in {'low','medium','high','critical'}: raise HTTPException(422, 'Invalid bug severity')
+    if not 1 <= limit <= 500 or offset < 0: raise HTTPException(400, 'Invalid limit or offset')
+    c=db(); task_for_bug(c, task_id); where='task_id=? AND user_id=?'; params=[task_id,'local-user']
+    if status: where += ' AND status=?'; params.append(status)
+    if severity: where += ' AND severity=?'; params.append(severity)
+    total=c.execute(f'SELECT COUNT(*) FROM bugs WHERE {where}',params).fetchone()[0]
+    order="CASE status WHEN 'active' THEN 0 WHEN 'open' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END, updated_at DESC, id ASC"
+    rows=c.execute(f'SELECT * FROM bugs WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?',params+[limit,offset]).fetchall()
+    return {'items':[bug_output(r) for r in rows], 'total':total, 'limit':limit, 'offset':offset}
+
+@app.get('/tasks/{task_id}/bugs/current')
+def current_bug(task_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); task_for_bug(c, task_id)
+    row=c.execute("SELECT * FROM bugs WHERE task_id=? AND user_id=? AND status='active'", (task_id,'local-user')).fetchone()
+    return {'bug':bug_output(row) if row else None}
+
+@app.get('/tasks/{task_id}/bugs/{bug_id}')
+def get_bug(task_id: str, bug_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); return bug_output(owned_bug(db(), task_id, bug_id))
+
+@app.post('/tasks/{task_id}/bugs/{bug_id}/activate')
+def activate_bug(task_id: str, bug_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        task_for_bug(c,task_id,True); target=owned_bug(c,task_id,bug_id)
+        if target['status'] == 'resolved': raise HTTPException(409, 'Bug is resolved; reopen it first')
+        if target['status'] == 'active': raise HTTPException(409, 'Bug is already active')
+        timestamp=now(); old=c.execute("SELECT * FROM bugs WHERE task_id=? AND status='active'",(task_id,)).fetchone()
+        paused=None
+        if old:
+            c.execute("UPDATE bugs SET status='paused',paused_at=?,updated_at=?,active_started_at=NULL,total_active_seconds=? WHERE id=?",(timestamp,timestamp,active_seconds(old,timestamp),old['id']))
+            paused=bug_output(owned_bug(c,task_id,old['id']))
+        c.execute("UPDATE bugs SET status='active',activated_at=?,updated_at=?,active_started_at=? WHERE id=?",(timestamp,timestamp,timestamp,bug_id)); c.commit()
+    except Exception:
+        c.rollback(); raise
+    return {'active_bug':bug_output(owned_bug(db(),task_id,bug_id)), 'paused_bug':paused}
+
+@app.post('/tasks/{task_id}/bugs/{bug_id}/pause')
+def pause_bug(task_id: str, bug_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        task_for_bug(c,task_id,True); row=owned_bug(c,task_id,bug_id)
+        if row['status'] != 'active': raise HTTPException(409, 'Only an active bug can be paused')
+        timestamp=now(); c.execute("UPDATE bugs SET status='paused',paused_at=?,updated_at=?,active_started_at=NULL,total_active_seconds=? WHERE id=?",(timestamp,timestamp,active_seconds(row,timestamp),bug_id)); c.commit()
+    except Exception: c.rollback(); raise
+    return bug_output(owned_bug(db(),task_id,bug_id))
+
+@app.post('/tasks/{task_id}/bugs/{bug_id}/resolve')
+def resolve_bug_task(task_id: str, bug_id: str, x: BugResolutionIn, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        task_for_bug(c,task_id,True); row=owned_bug(c,task_id,bug_id)
+        if row['status'] == 'resolved': raise HTTPException(409, 'Bug is already resolved')
+        timestamp=now(); total=active_seconds(row,timestamp) if row['status']=='active' else int(row['total_active_seconds'] or 0)
+        c.execute("UPDATE bugs SET status='resolved',resolved_at=?,updated_at=?,active_started_at=NULL,total_active_seconds=? WHERE id=?",(timestamp,timestamp,total,bug_id))
+        c.execute('INSERT INTO bug_resolutions VALUES (?,?,?,?,?,?,?,?)',(str(uuid.uuid4()),'local-user',task_id,bug_id,x.resolution_summary,x.root_cause,x.verification,timestamp)); c.commit()
+    except Exception: c.rollback(); raise
+    return bug_output(owned_bug(db(),task_id,bug_id))
+
+@app.post('/tasks/{task_id}/bugs/{bug_id}/reopen')
+def reopen_bug(task_id: str, bug_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        task_for_bug(c,task_id,True); row=owned_bug(c,task_id,bug_id)
+        if row['status'] != 'resolved': raise HTTPException(409, 'Only a resolved bug can be reopened')
+        timestamp=now(); c.execute("UPDATE bugs SET status='open',reopened_at=?,updated_at=? WHERE id=?",(timestamp,timestamp,bug_id)); c.commit()
+    except Exception: c.rollback(); raise
+    return bug_output(owned_bug(db(),task_id,bug_id))
+
+@app.get('/tasks/{task_id}/bugs/{bug_id}/notes')
+def bug_notes(task_id: str, bug_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); owned_bug(c,task_id,bug_id)
+    return {'items':[dict(r) for r in c.execute('SELECT * FROM bug_notes WHERE bug_id=? AND task_id=? AND user_id=? ORDER BY created_at,id',(bug_id,task_id,'local-user'))]}
+
+@app.post('/tasks/{task_id}/bugs/{bug_id}/notes')
+def add_bug_note(task_id: str, bug_id: str, x: BugNoteIn, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        task_for_bug(c,task_id,True); owned_bug(c,task_id,bug_id)
+        existing=c.execute('SELECT * FROM bug_notes WHERE client_note_id=?',(x.client_note_id,)).fetchone()
+        if existing:
+            if existing['bug_id'] != bug_id or existing['task_id'] != task_id: raise HTTPException(409, 'client_note_id already belongs to another bug')
+            c.commit(); return dict(existing)
+        nid=str(uuid.uuid4()); timestamp=now(); c.execute('INSERT INTO bug_notes VALUES (?,?,?,?,?,?,?)',(nid,x.client_note_id,'local-user',task_id,bug_id,x.text,timestamp)); c.commit()
+    except Exception: c.rollback(); raise
+    return dict(db().execute('SELECT * FROM bug_notes WHERE id=?',(nid,)).fetchone())
+
+@app.get('/tasks/{task_id}/bugs/{bug_id}/resolutions')
+def bug_resolutions(task_id: str, bug_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization); c=db(); owned_bug(c,task_id,bug_id)
+    return {'items':[dict(r) for r in c.execute('SELECT * FROM bug_resolutions WHERE bug_id=? AND task_id=? AND user_id=? ORDER BY created_at,id',(bug_id,task_id,'local-user'))]}
+
+@app.get('/tasks/{task_id}/bugs/{bug_id}/events')
+def bug_events(task_id: str, bug_id: str, limit: int=100, offset: int=0, event_type: Optional[str]=None, authorization: Optional[str]=Header(None)):
+    auth(authorization); owned_bug(db(),task_id,bug_id)
+    return captured_events(task_id,limit,offset,event_type,bug_id,authorization)
+
+# Compatibility endpoint retained for earlier extension builds.
 @app.post('/bugs/{bug_id}/resolve')
-def resolve_bug(bug_id:str,authorization:Optional[str]=Header(None)):
-    auth(authorization); c=db(); c.execute('UPDATE bugs SET status=?,resolved_at=? WHERE id=?',('resolved',now(),bug_id)); c.commit(); return bug(bug_id,authorization)
-def bug(bug_id,authorization):
-    r=db().execute('SELECT * FROM bugs WHERE id=?',(bug_id,)).fetchone();
-    if not r: raise HTTPException(404,'Bug not found')
-    return dict(r)
+def resolve_bug_legacy(bug_id: str, x: Optional[BugResolutionIn]=None, authorization: Optional[str]=Header(None)):
+    auth(authorization); row=db().execute('SELECT task_id FROM bugs WHERE id=? AND user_id=?',(bug_id,'local-user')).fetchone()
+    if not row: raise HTTPException(404,'Bug not found')
+    return resolve_bug_task(row['task_id'],bug_id,x or BugResolutionIn(resolution_summary='Resolved'),authorization)
 def filter_sensitive(value: Any):
     if isinstance(value, dict):
         return {k: ('[REDACTED]' if re.search(r'(?i)(api[_-]?key|token|password|secret|authorization)', k) else filter_sensitive(v)) for k, v in value.items()}

@@ -8,3 +8,7 @@
 - 阶段 3 使用 SQLite 迁移补列、`BEGIN IMMEDIATE` 和活动状态部分唯一索引保证单活动任务；项目同名同 Workspace 创建幂等。
 - 首版将 VS Code 保存事件作为稳定的修改粒度；Shell Integration 和复杂 Debug 输出降级为后续能力。
 阶段 4：事件单独使用 `worklog_events` 表，保留旧 `events` 接口兼容上一阶段；扩展只做有界内存缓冲，后端 SQLite 是最终数据源。
+
+- 阶段 5：Bug 的状态转换和 active 切换由 SQLite 事务执行；UI 只反映服务端结果，不能替代唯一约束。
+- 阶段 5：事件创建时快照 `bug_id`，而不是 flush 时读取当前 Bug。因此切换后的 Buffer 不会重写已排队事件的归属。
+- 阶段 5：结束任务会先 flush，随后自动暂停 active Bug 并累计时长；不自动 resolve，已完成任务的 Bug 不再可修改。

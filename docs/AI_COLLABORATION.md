@@ -11,3 +11,5 @@
 后续版本应通过 GitHub 的 `main` 稳定分支、`develop` 开发分支、版本标签和代码审阅 Issue 逐轮审阅和迭代。
 阶段 4 由主 Agent 顺序完成，未使用子 Agent；变更集中在事件 API、扩展采集器、缓冲和验证文档。
 本次人工验收修复定位到 View 生命周期与旧快照竞态：侧边栏不再拥有独立后端状态，resolve/visible/状态变化均从 ServerManager 刷新，并用 render version 丢弃旧异步结果；新增 View Reopen 回归字段和按钮矩阵单元测试。
+
+阶段 5 由并行子 Agent 实施：后端负责 SQLite 模型、迁移、状态事务和 API；扩展负责 Bug 状态、命令与视图；事件负责采集时固定 bug_id 与 Extension Host E2E；文档/验证负责真实 EXE 生命周期脚本、安全边界和人工验收说明。主 Agent 负责整合、全量测试和 Git 操作。

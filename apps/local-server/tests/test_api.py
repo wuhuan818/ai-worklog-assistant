@@ -65,10 +65,62 @@ def test_create_task_and_event(client, headers):
 def test_create_and_resolve_bug(client, headers):
     task = create_task(client, headers)
     bug = client.post('/tasks/%s/bugs' % task['id'], headers=headers, json={'title': 'broken test'}).json()
-    assert bug['status'] == 'active'
-    resolved = client.post('/bugs/%s/resolve' % bug['id'], headers=headers)
+    assert bug['status'] == 'open'
+    resolved = client.post('/bugs/%s/resolve' % bug['id'], headers=headers, json={'resolution_summary': 'fixed'})
     assert resolved.status_code == 200
     assert resolved.json()['status'] == 'resolved'
+
+
+def test_bug_lifecycle_notes_resolutions_and_task_end_pause(client, headers):
+    task = create_task(client, headers)
+    base = f'/tasks/{task["id"]}/bugs'
+    first = client.post(base, headers=headers, json={'title': 'A', 'severity': 'high'}).json()
+    second = client.post(base, headers=headers, json={'title': 'B', 'severity': 'low'}).json()
+    assert client.post(f'{base}/{first["id"]}/activate', headers=headers).json()['active_bug']['id'] == first['id']
+    switched = client.post(f'{base}/{second["id"]}/activate', headers=headers).json()
+    assert switched['paused_bug']['id'] == first['id'] and switched['active_bug']['id'] == second['id']
+    note = client.post(f'{base}/{second["id"]}/notes', headers=headers, json={'client_note_id': 'note-1', 'text': 'check repro'})
+    assert note.status_code == 200
+    assert client.post(f'{base}/{second["id"]}/notes', headers=headers, json={'client_note_id': 'note-1', 'text': 'changed'}).json()['id'] == note.json()['id']
+    assert client.post(f'{base}/{second["id"]}/resolve', headers=headers, json={'resolution_summary': 'fixed'}).json()['status'] == 'resolved'
+    assert len(client.get(f'{base}/{second["id"]}/resolutions', headers=headers).json()['items']) == 1
+    assert client.post(f'{base}/{second["id"]}/reopen', headers=headers).json()['status'] == 'open'
+    client.post(f'{base}/{second["id"]}/activate', headers=headers)
+    assert client.post(f'/tasks/{task["id"]}/end', headers=headers).status_code == 200
+    assert client.get(f'{base}/{second["id"]}', headers=headers).json()['status'] == 'paused'
+    assert client.post(base, headers=headers, json={'title': 'nope'}).status_code == 409
+
+
+def test_bug_event_association_and_filter(client, headers):
+    task = create_task(client, headers)
+    base = f'/tasks/{task["id"]}/bugs'
+    bug = client.post(base, headers=headers, json={'title': 'linked'}).json()
+    payload = {'client_event_id': 'bug-event-1', 'event_type': 'file_saved', 'occurred_at': '2026-01-01T00:00:00Z', 'bugId': bug['id'], 'payload': {}}
+    assert client.post(f'/tasks/{task["id"]}/events/batch', headers=headers, json={'events': [payload]}).status_code == 200
+    listed = client.get(f'{base}/{bug["id"]}/events', headers=headers).json()
+    assert listed['total'] == 1 and listed['items'][0]['bug_id'] == bug['id']
+    assert client.post(f'/tasks/{task["id"]}/events/batch', headers=headers, json={'events': [{**payload, 'client_event_id': 'bad', 'bugId': 'missing'}]}).status_code == 422
+
+
+def test_bug_migration_preserves_legacy_rows_and_repairs_duplicate_active(tmp_path):
+    main.DB_PATH = tmp_path / 'legacy.db'
+    c = sqlite3.connect(main.DB_PATH)
+    c.executescript("""
+      CREATE TABLE users(id TEXT PRIMARY KEY, name TEXT);
+      CREATE TABLE projects(id TEXT PRIMARY KEY,user_id TEXT,name TEXT,slug TEXT UNIQUE);
+      CREATE TABLE tasks(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,name TEXT,description TEXT,requirement_id TEXT,tags TEXT,status TEXT,started_at TEXT,ended_at TEXT);
+      CREATE TABLE bugs(id TEXT PRIMARY KEY,user_id TEXT,task_id TEXT,title TEXT,status TEXT,created_at TEXT,resolved_at TEXT,notes TEXT,root_cause TEXT,solution TEXT);
+      INSERT INTO users VALUES ('local-user','Local User');
+      INSERT INTO projects VALUES ('p','local-user','P','p');
+      INSERT INTO tasks VALUES ('t','local-user','p','T','','','[]','active','2026-01-01T00:00:00+00:00',NULL);
+      INSERT INTO bugs VALUES ('a','local-user','t','A','active','2026-01-01T00:00:00+00:00',NULL,'','','');
+      INSERT INTO bugs VALUES ('b','local-user','t','B','active','2026-01-02T00:00:00+00:00',NULL,'','','');
+    """)
+    c.commit(); c.close()
+    migrated = main.db()
+    assert migrated.execute("SELECT COUNT(*) FROM bugs WHERE task_id='t'").fetchone()[0] == 2
+    assert migrated.execute("SELECT COUNT(*) FROM bugs WHERE task_id='t' AND status='active'").fetchone()[0] == 1
+    assert migrated.execute("SELECT project_id FROM bugs WHERE id='a'").fetchone()[0] == 'p'
 
 
 def test_mock_summary_update_confirm_markdown_and_search(client, headers):

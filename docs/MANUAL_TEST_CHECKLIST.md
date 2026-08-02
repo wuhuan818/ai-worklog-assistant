@@ -96,3 +96,14 @@
 The GUI checklist is complemented by the real-host command `npm.cmd run test:e2e:event-capture`; it covers the same event lifecycle plus SQLite, redaction, restart persistence, and process cleanup.
 
 View lifecycle check: after switching away and back to AI Worklog, confirm backend remains normal, the task ID and timer remain unchanged, and task/note/refresh/event buttons remain enabled as appropriate.
+
+## 阶段 5 最小人工验收
+
+1. 按 F5，等待后端正常并开始工作任务。
+2. 新建 Bug A 并激活，保存一个文件；新建 Bug B 并切换，再保存一个文件。
+3. 确认 A 为 paused、B 为 active，两个保存事件分别归属当时的 Bug。
+4. 为 B 添加 Bug 备注，填写解决摘要并解决；在列表中确认备注和解决记录。
+5. reopen B，再次激活，重启后端，确认活动任务与 B 均恢复。
+6. 结束任务；确认 B 自动 paused，且不能再添加备注、切换或解决。
+
+自动化负责 SQLite、状态并发、重启、事件归属和进程清理；此清单只验证真实 Extension Host 的交互与显示。
