@@ -28,7 +28,7 @@ export class ApiClient {
     catch (error) { throw new ApiError(0, `后端不可用：${error instanceof Error ? error.message : String(error)}`, 'transport'); }
     if (!response.ok) {
       let message = await response.text();
-      try { const parsed = JSON.parse(message) as { detail?: string }; message = parsed.detail || message; } catch { /* preserve non-JSON server errors */ }
+      try { const parsed = JSON.parse(message) as { detail?: string | { message?: string } }; const detail = parsed.detail; message = typeof detail === 'string' ? detail : detail?.message || message; } catch { /* preserve non-JSON server errors */ }
       throw new ApiError(response.status, message);
     }
     return response.json() as Promise<T>;

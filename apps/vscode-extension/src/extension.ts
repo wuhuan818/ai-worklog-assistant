@@ -14,7 +14,7 @@ import { BugState } from './bug/bugState';
 import { startBackendOnActivation } from './activationStartup';
 import { shouldApplyRender } from './viewState';
 import { buttonState, SnapshotDeduper, WorklogViewSnapshot } from './viewSnapshot';
-import { AiProfileStore, AiProviderKind, AiProviderProfile, defaultsFor } from './ai/profileStore';
+import { AiProfileStore, AiProviderKind, AiProviderProfile, defaultsFor, qwenRegionOptions } from './ai/profileStore';
 
 class Provider implements vscode.WebviewViewProvider {
   private renderVersion = 0;
@@ -132,7 +132,10 @@ let activeServer: ServerManager | undefined;
 async function configureAi(store: AiProfileStore): Promise<void> {
   const display = await promptText({ prompt: 'AI Profile 名称' }); if (display.kind === 'cancelled' || !display.value.trim()) return;
   const providerPick = await promptPick([{ label: 'DeepSeek', provider: 'deepseek' as AiProviderKind }, { label: 'Qwen', provider: 'qwen' as AiProviderKind }, { label: 'Custom OpenAI-compatible', provider: 'openai-compatible' as AiProviderKind }], { title: 'AI Provider' }); if (providerPick.kind === 'cancelled') return;
-  const defaults = defaultsFor(providerPick.value.provider); const base = await promptText({ prompt: 'Base URL', value: defaults.baseUrl }); if (base.kind === 'cancelled' || !base.value.trim()) return;
+  const defaults = defaultsFor(providerPick.value.provider);
+  let qwenBaseUrl = defaults.baseUrl;
+  if (providerPick.value.provider === 'qwen') { const region = await promptPick(qwenRegionOptions, { title: 'Qwen 地域' }); if (region.kind === 'cancelled') return; if (region.value.region === 'custom') { const custom = await promptText({ prompt: 'Qwen 自定义 Base URL' }); if (custom.kind === 'cancelled' || !custom.value.trim()) return; qwenBaseUrl = custom.value; } else { qwenBaseUrl = region.value.baseUrl; } }
+  const base = providerPick.value.provider === 'qwen' ? { kind: 'accepted' as const, value: qwenBaseUrl } : await promptText({ prompt: 'Base URL', value: defaults.baseUrl }); if (base.kind === 'cancelled' || !base.value.trim()) return;
   const model = await promptText({ prompt: '模型', value: defaults.model }); if (model.kind === 'cancelled' || !model.value.trim()) return;
   if (providerPick.value.provider === 'deepseek' && ['deepseek-chat', 'deepseek-reasoner'].includes(model.value.trim())) { vscode.window.showWarningMessage('该 DeepSeek 旧模型名不应作为默认值，请确认可用性。'); }
   const key = await promptText({ prompt: 'API Key', password: true }); if (key.kind === 'cancelled' || !key.value) return;

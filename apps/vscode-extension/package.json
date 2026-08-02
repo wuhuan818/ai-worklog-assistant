@@ -149,7 +149,7 @@
     "scripts":  {
                     "compile":  "tsc -p .",
                     "lint":  "eslint src --ext .ts",
-                    "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js",
+                    "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js dist/ai/*.test.js",
                     "test:e2e:event-capture":  "node test/runEventCaptureE2E.js",
                     "test:e2e:bug-lifecycle":  "node test/runBugLifecycleE2E.js",
                     "test:e2e:data-continuity": "node test/runDataContinuityE2E.js",

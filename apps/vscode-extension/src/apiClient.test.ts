@@ -20,6 +20,11 @@ test('ApiClient reports HTTP and transport failures', async () => {
   await assert.rejects(() => new ApiClient('http://localhost', 'bad', offline).health(), (error: ApiError) => error.status === 0 && error.message.includes('后端不可用'));
 });
 
+test('ApiClient exposes only the safe AI error message envelope', async () => {
+  const client = new ApiClient('http://localhost', 'token', { fetch: async () => new Response(JSON.stringify({ detail: { code: 'unauthorized', message: 'API Key 无效或无权访问该模型' } }), { status: 400 }) });
+  await assert.rejects(() => client.testAiConnection({ provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-flash', api_key: 'synthetic-key', thinking_enabled: false, timeout_seconds: 30, max_output_tokens: 16 }), /API Key 无效/);
+});
+
 test('ApiClient treats an empty active task envelope as normal', async () => {
   const transport: HttpTransport = { fetch: async () => new Response(JSON.stringify({ task: null }), { status: 200 }) };
   assert.equal(await new ApiClient('http://localhost', 'token', transport).activeTask(), null);
