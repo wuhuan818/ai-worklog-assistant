@@ -47,3 +47,13 @@ Extension Host verification.  It produces the ignored machine-readable report
 Wizard-input unit tests verify cancellation is distinct from accepted empty
 input. The Stage 06 report also contains the independent cross-workspace
 re-verification result.
+# Stage 7 Extension Host diagnostics
+
+Run the isolated canary before a Provider E2E run:
+
+```powershell
+cd apps/vscode-extension
+npm.cmd run test:e2e:canary
+```
+
+The downloaded VS Code test process must be launched outside the restrictive filesystem sandbox. Do not use the user's installed VS Code or `--disable-extensions`; the latter prevents the VS Code extension-test runner from loading. Failed diagnostics are retained under `artifacts/e2e-diagnostics` and contain no API keys.
