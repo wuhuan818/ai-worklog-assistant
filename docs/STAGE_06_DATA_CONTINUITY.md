@@ -15,3 +15,10 @@ On activation, the extension waits for a healthy backend, resolves identity,
 resolves the project, and only restores an active task when it belongs to that
 project.  An active task for another workspace is a conflict: event capture
 is disabled, no Bug is associated, and no replacement task is created.
+
+## Input wizard stability supplement
+
+Multi-step Task, Bug and resolution prompts use `ignoreFocusOut: true`.
+`undefined` means cancellation and ends the entire wizard; an explicit empty
+string is an accepted optional value. No write is sent until every required
+step has been accepted.

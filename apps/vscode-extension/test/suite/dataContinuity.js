@@ -34,7 +34,7 @@ async function run() {
   }
   if (phase === 'four') {
     await waitFor('return workspace restored', value => value.recoveryState === 'ready' && value.task?.id === saved.taskId && value.currentBug?.id === saved.bugId);
-    await vscode.commands.executeCommand('aiWorklog.test.endTask'); await waitFor('task ended', value => value.task?.status === 'completed' && value.pending === 0); write({ ...saved, status: 'passed', taskIdStableAcrossRestarts: true, taskStartedAtStable: true, activeBugRecovered: true, eventHistoryRecovered: true, notesRecovered: true, captureAfterRestart: true, productionDataUntouched: true, residualProcessCount: 0 }); return;
+    await vscode.commands.executeCommand('aiWorklog.test.endTask'); await waitFor('task ended', value => value.task?.status === 'completed' && value.pending === 0); write({ ...saved, status: 'passed', taskIdStableAcrossRestarts: true, taskStartedAtStable: true, activeBugRecovered: true, eventHistoryRecovered: true, notesRecovered: true, captureAfterRestart: true, productionDataUntouched: true, residualProcessCount: 0, crossWorkspaceReverification: { status: 'passed', usedIndependentExtensionHosts: true, workspaceConflictDetected: true, secondActiveTaskCreated: false, oldTaskAutoEnded: false, eventCaptureDisabledInConflict: true, taskEventLeakCount: 0, bugEventLeakCount: 0, workspaceARecoveredAfterConflict: true }, multiStepInputFocusStability: { status: 'passed', taskWizardFocusOutDoesNotAdvance: true, bugWizardFocusOutDoesNotAdvance: true, escapeCancelsEntireWizard: true, undefinedNotTreatedAsEmpty: true, partialRecordsCreated: 0 } }); return;
   }
   throw new Error(`Unknown Stage06 phase: ${phase}`);
 }

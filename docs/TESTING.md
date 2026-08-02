@@ -43,3 +43,7 @@ The Extension Host E2E additionally verifies the UI state, collectors and pendin
 Run `scripts\verify-data-continuity.ps1` for the isolated multi-process
 Extension Host verification.  It produces the ignored machine-readable report
 `artifacts/test-results/stage06-data-continuity.json`.
+
+Wizard-input unit tests verify cancellation is distinct from accepted empty
+input. The Stage 06 report also contains the independent cross-workspace
+re-verification result.
