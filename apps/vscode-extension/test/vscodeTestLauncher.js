@@ -10,7 +10,10 @@ async function launch({ version = '1.85.2', extensionDevelopmentPath, extensionT
   const product = JSON.parse(fs.readFileSync(path.join(path.dirname(executable), 'resources', 'app', 'product.json'), 'utf8'));
   const args = [workspace, `--user-data-dir=${userData}`, `--extensions-dir=${extensions}`, '--disable-updates', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', '--verbose', '--disable-gpu-sandbox', `--logsPath=${logs}`, `--extensionTestsPath=${extensionTestsPath}`, `--extensionDevelopmentPath=${extensionDevelopmentPath}`];
   const child = spawn(executable, args, { env: isolatedEnvironment(env), shell: false, windowsHide: true });
+  let stdout = ''; let stderr = '';
+  child.stdout?.on('data', chunk => { stdout += String(chunk); });
+  child.stderr?.on('data', chunk => { stderr += String(chunk); });
   onSpawn?.({ child, executable, args, product, removedEnvironment: REMOVED_ENV.map(key => ({ key, existed: Object.prototype.hasOwnProperty.call(process.env, key), removed: true })) });
-  return await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code, signal) => resolve({ code, signal, executable, args, product })); });
+  return await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code, signal) => resolve({ code, signal, executable, args, product, stdout, stderr })); });
 }
 module.exports = { launch, REMOVED_ENV };
