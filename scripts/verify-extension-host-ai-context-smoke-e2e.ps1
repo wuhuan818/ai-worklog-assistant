@@ -8,14 +8,11 @@ try {
   npm.cmd run compile
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   if (-not (Test-Path -LiteralPath $runner)) { throw 'Stage 08 Extension Host smoke runner is missing' }
-  # Start-Process receives an executable plus argument list (no shell), and the
-  # bounded child owns its isolated VS Code profile/diagnostics.
-  $child = Start-Process -FilePath 'node.exe' -ArgumentList @($runner) -WorkingDirectory $extensionRoot -PassThru -NoNewWindow
-  if (-not $child.WaitForExit(90000)) {
-    try { Stop-Process -Id $child.Id -Force -ErrorAction Stop } catch {}
-    throw 'Stage 08 Extension Host smoke exceeded its 90 second hard timeout'
-  }
-  if ($child.ExitCode -ne 0) { throw "Stage 08 Extension Host smoke failed: $($child.ExitCode)" }
+  # Invoke directly: the launcher itself uses argument arrays (no shell) and
+  # its 90-second VS Code timeout.  This also avoids Start-Process inheriting
+  # duplicate Windows Path/PATH entries from certain developer shells.
+  & node.exe $runner
+  if ($LASTEXITCODE -ne 0) { throw "Stage 08 Extension Host smoke failed: $LASTEXITCODE" }
   Write-Output 'STAGE08_EXTENSION_HOST_SMOKE=PASS'
 } finally {
   Pop-Location

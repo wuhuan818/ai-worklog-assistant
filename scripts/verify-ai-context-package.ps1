@@ -50,9 +50,12 @@ try {
   Assert-Stage08 'idempotent-build' ($contextId -eq (Get-Field $buildReplay 'context_id'))
   Assert-Stage08 'secret-redacted' (-not $rawPackage.Contains($syntheticSecret))
   Assert-Stage08 'absolute-path-removed' (-not $rawPackage.Contains('C:\Users\synthetic-user'))
-  Assert-Stage08 'redaction-present' ($rawPackage.Contains('<redacted:'))
   $privacy = Get-Field $package 'privacy'; $budget = Get-Field $package 'budget'; $provenance = Get-Field $package 'provenance'
   Assert-Stage08 'privacy-report' ((Get-Field $privacy 'raw_secret_retained') -eq $false)
+  # The persisted event layer may have already replaced a secret before the
+  # Context v1 redactor sees it.  The authoritative cross-layer assertion is
+  # therefore the privacy count, not a presentation-specific marker string.
+  Assert-Stage08 'redaction-recorded' (([int](Get-Field $privacy 'redaction_count')) -ge 1)
   Assert-Stage08 'sensitive-file-excluded' (([int](Get-Field $privacy 'sensitive_files_excluded')) -ge 1)
   Assert-Stage08 'budget-report' (([int](Get-Field $budget 'estimated_tokens_after')) -le ([int](Get-Field $budget 'estimated_token_budget')))
   Assert-Stage08 'provenance-report' ($null -ne (Get-Field $provenance 'source_counts'))

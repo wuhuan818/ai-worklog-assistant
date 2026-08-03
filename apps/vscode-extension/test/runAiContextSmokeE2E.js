@@ -6,7 +6,7 @@ const temp = fs.mkdtempSync(path.join(repo, 'artifacts', 'ai-worklog-stage08-smo
 fs.mkdirSync(path.join(workspace, '.vscode'), { recursive: true }); fs.mkdirSync(data, { recursive: true });
 fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({ 'aiWorklog.serverPort': 0, 'aiWorklog.dataDir': data }));
 (async () => { try {
-  const result = await launch({ extensionDevelopmentPath: root, extensionTestsPath: path.join(root, 'test', 'suite', 'aiContextSmoke.js'), workspace, userData: path.join(temp, 'user-data'), extensions: path.join(temp, 'extensions'), logs: path.join(temp, 'logs'), env: { STAGE08_CONTEXT_SMOKE: '1' } });
+  const result = await launch({ extensionDevelopmentPath: root, extensionTestsPath: path.join(root, 'test', 'suite'), workspace, userData: path.join(temp, 'user-data'), extensions: path.join(temp, 'extensions'), logs: path.join(temp, 'logs'), env: { STAGE08_CONTEXT_SMOKE: '1' } });
   if (result.code !== 0) throw Error(`Extension Host exited ${result.code}`);
 } catch (error) { console.error(error); process.exitCode = 1; }
 finally { if (process.exitCode) console.error(`STAGE08_SMOKE_DIAGNOSTICS=${temp}`); else fs.rmSync(temp, { recursive: true, force: true }); } })();
