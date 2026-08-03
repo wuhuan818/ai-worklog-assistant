@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { ChildProcess, execFile, spawn, SpawnOptions } from 'node:child_process';
+import { ChildProcess, execFile, execFileSync, spawn, SpawnOptions } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as net from 'node:net';
@@ -80,6 +80,22 @@ function terminateOwnedProcess(child: ChildProcess): Promise<void> {
   });
 }
 
+interface ProcessIdentity { executablePath: string; startedAt: string; }
+function processIdentity(pid: number): ProcessIdentity | undefined {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  try {
+    if (process.platform === 'win32') {
+      const command = `Get-Process -Id ${pid} -ErrorAction Stop | Select-Object Path,StartTime | ConvertTo-Json -Compress`;
+      const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8', windowsHide: true }).trim();
+      const value = JSON.parse(output) as { Path?: string; StartTime?: string };
+      if (!value.Path || !value.StartTime) return undefined;
+      return { executablePath: value.Path, startedAt: new Date(value.StartTime).toISOString() };
+    }
+    process.kill(pid, 0); return undefined;
+  } catch { return undefined; }
+}
+function isAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
+
 export class BackendProcessManager {
   private readonly token = randomBytes(24).toString('hex');
   private readonly spawnProcess: NonNullable<BackendProcessManagerOptions['spawnProcess']>;
@@ -143,6 +159,7 @@ export class BackendProcessManager {
   }
 
   private async startInternal(): Promise<ApiClient> {
+    this.cleanupOrphanedRegistries();
     this.lastError = undefined;
     this.setState('starting');
     let executable: string;
@@ -308,10 +325,32 @@ export class BackendProcessManager {
     const file = this.registryFile(); if (!file || !pid) return;
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      const record = { schemaVersion: 'backend-process-owner/v1', extensionInstanceId: this.extensionInstanceId, backendGeneration: generation, backendPid: pid, extensionHostPid: process.pid, executablePath, dataDirectory: this.options.dataDir, startedAt: new Date().toISOString(), lastHeartbeatAt: new Date().toISOString(), state };
+      const identity = processIdentity(pid);
+      const record = { schemaVersion: 'backend-process-owner/v1', extensionInstanceId: this.extensionInstanceId, backendGeneration: generation, backendPid: pid, extensionHostPid: process.pid, backendStartIdentity: identity?.startedAt, executablePath, dataDirectory: this.options.dataDir, startedAt: new Date().toISOString(), lastHeartbeatAt: new Date().toISOString(), state };
       const temporary = `${file}.${process.pid}.tmp`;
       fs.writeFileSync(temporary, JSON.stringify(record), { encoding: 'utf8', mode: 0o600 }); fs.renameSync(temporary, file);
     } catch (error) { this.log(`运行时登记写入失败：${safeError(error)}`); }
   }
   private removeRegistry(): void { const file = this.registryFile(); if (!file) return; try { fs.rmSync(file, { force: true }); } catch (error) { this.log(`运行时登记清理失败：${safeError(error)}`); } }
+  private cleanupOrphanedRegistries(): void {
+    const directory = this.options.runtimeRegistryDir; if (!directory || !fs.existsSync(directory)) return;
+    for (const name of fs.readdirSync(directory)) {
+      if (!name.endsWith('.json')) continue;
+      const file = path.join(directory, name);
+      try {
+        const record = JSON.parse(fs.readFileSync(file, 'utf8')) as { backendPid?: number; extensionHostPid?: number; executablePath?: string; backendStartIdentity?: string };
+        const pid = record.backendPid;
+        if (!pid || !record.executablePath || !record.backendStartIdentity) { fs.rmSync(file, { force: true }); continue; }
+        const identity = processIdentity(pid);
+        if (!identity) { fs.rmSync(file, { force: true }); continue; }
+        if (isAlive(record.extensionHostPid || 0)) continue; // another live window owns it
+        const pathMatches = path.resolve(identity.executablePath).toLocaleLowerCase() === path.resolve(record.executablePath).toLocaleLowerCase();
+        const startMatches = identity.startedAt === record.backendStartIdentity;
+        if (!pathMatches || !startMatches) { this.log(`孤儿登记不匹配，仅删除登记：PID=${pid}`); fs.rmSync(file, { force: true }); continue; }
+        this.log(`确认孤儿后端所有权：PID=${pid}；父进程已退出；路径与启动时间匹配`);
+        if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }); else process.kill(pid, 'SIGTERM');
+        fs.rmSync(file, { force: true });
+      } catch (error) { this.log(`运行时登记读取失败，安全忽略：${safeError(error)}`); }
+    }
+  }
 }
