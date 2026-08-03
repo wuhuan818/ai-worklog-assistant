@@ -28,3 +28,7 @@ identity to avoid silently merging worktrees or moved checkouts.
 ## Stage 7 checkpoint decision
 
 Stage 7 is committed as `accepted-with-known-blocker`: implementation and manual acceptance are complete, but final Stage 6 and Event/Bug Extension Host evidence is incomplete. The known blocker is extension-owned backend process survival after VS Code shutdown. This distinction prevents an unverified full-regression claim while preserving the reviewed Provider foundation as the baseline for Stage 7.1.
+
+## Stage 7.1 decision
+
+The Stage 7 backend-survival blocker is resolved in Stage 7.1 through explicit backend ownership, authenticated graceful shutdown, a Windows parent-handle watchdog, and verified orphan cleanup. Same-name processes are never treated as proof of ownership. Build serialization uses an atomic lock with process-start-time validation and a unique PyInstaller work directory.

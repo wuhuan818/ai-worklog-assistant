@@ -21,3 +21,7 @@ not infer task ownership from the current VS Code process or folder name.
 ## Stage 07 collaboration record
 
 Stage 07 added secure DeepSeek, Qwen and Custom OpenAI-compatible connection configuration, without expanding into summary generation. The implementation keeps profiles in globalState and keys in SecretStorage, uses redacted bounded connection checks, supports Qwen Workspace ID regional endpoints, and records runtime-only connection state. The automated suite uses a fake provider, a fixed VS Code 1.85.2 test runtime and a canary launched with `shell: false`. The historical Windows Extension Host code-1 failure was traced to restricted test-process filesystem access plus `shell: true` path splitting, not a Provider API failure. Data-continuity verification was also changed to expose a first-run failure rather than masking it with blind retries.
+
+## Stage 07.1 collaboration record
+
+Stage 7.1 prioritizes product lifecycle correctness over test cleanup. Backend termination is tied to an instance registration and exact PID identity; diagnostics redact tokens and never store provider keys. GUI Extension Host tests require execution outside the restrictive sandbox, while temporary profiles and test data remain isolated.

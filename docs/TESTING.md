@@ -63,6 +63,10 @@ The downloaded VS Code test process must be launched outside the restrictive fil
 Run `scripts\verify-ai-provider-foundation.ps1` for the backend contract and `scripts\verify-extension-host-ai-provider-e2e.ps1` for the real Extension Host. The latter uses an in-memory fake provider and a unique synthetic key; the key and Authorization header must not appear in artifacts or logs. It covers provider switching, SecretStorage, profile persistence, reconnect behavior, view reopening, and redacted HTTP/transport/invalid-response failures. The normalized result is `artifacts/test-results/stage07-ai-provider-foundation.json`; it is UTF-8 JSON without a BOM and derives Extension Host booleans from that run rather than hand-editing them.
 
 The Stage 06 data-continuity verifier intentionally does not retry a failed Extension Host run. `runDataContinuityDiagnostic.js` is a diagnostic-only entry point: it preserves a failed bounded diagnostic directory and cleans a successful one; it is not an alternate passing test path.
+
+## Stage 07.1 shutdown stability
+
+Run `scripts\verify-backend-parent-watchdog.ps1` three times, `scripts\verify-extension-host-backend-shutdown-e2e.ps1` three times, and `scripts\verify-backend-multi-instance-isolation.ps1` once. The Extension Host scripts use isolated profiles and must run outside the restrictive GUI/filesystem sandbox. Data Continuity has a 240-second total deadline, a 60-second per-host no-progress deadline, and `host1` through `host4` markers. No verifier retries failure into success or kills backends by image name.
 ## Stage 7 snapshot verification boundary
 
 The Stage 7 snapshot includes three Provider-contract rounds, two short Provider smoke rounds, Python and TypeScript verification, and backend lifecycle stages 2–5. The Stage 6 final run exceeded its execution window, while final Event and Bug Extension Host regressions were not rerun; none of these are claimed as passing in the Stage 7 snapshot report. Manual acceptance separately verified real DeepSeek connection, restart persistence, connection reset to `not-tested`, reconnection, view reopen, and API-key redaction.
