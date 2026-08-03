@@ -1,0 +1,23 @@
+{
+  "status": "partial",
+  "gracefulShutdownPassed": true,
+  "deactivateAwaitedPassed": true,
+  "parentWatchdogPassed": true,
+  "orphanCleanupPassed": false,
+  "multiInstanceIsolationPassed": true,
+  "restartShutdownRacePassed": true,
+  "buildLockPassed": true,
+  "staleBuildLockRecoveryPassed": true,
+  "uniqueBuildWorkPathPassed": true,
+  "dataContinuityPassed": true,
+  "backendShutdownE2ERoundsPassed": 3,
+  "parentWatchdogRoundsPassed": 3,
+  "ownedBackendProcessesBefore": 0,
+  "ownedBackendProcessesAfter": 0,
+  "unknownProcessesTerminated": 0,
+  "userVscodeProcessesTerminated": 0,
+  "blindRetryUsed": false,
+  "residualOwnedBackendCount": 0,
+  "durationSeconds": 0,
+  "notes": "Reload Window and direct startup-orphan cleanup integration evidence remain required before formal acceptance."
+}
