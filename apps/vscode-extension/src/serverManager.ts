@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { BackendProcessManager } from './backendProcessManager';
 import { resolveBackendExecutable } from './backendPath';
@@ -29,6 +30,7 @@ export class ServerManager extends BackendProcessManager {
       logger,
       mkdir: directory => fs.mkdirSync(directory, { recursive: true }),
       logPath,
+      runtimeRegistryDir: path.join(context.globalStorageUri.fsPath, 'runtime', 'backend-processes'),
     });
   }
 }

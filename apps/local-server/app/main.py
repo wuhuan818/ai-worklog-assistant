@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib, json, os, re, secrets, sqlite3, uuid
+import asyncio, ctypes, hashlib, json, os, re, secrets, sqlite3, threading, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,6 +15,8 @@ KNOWLEDGE = Path(os.getenv('WORKLOG_KNOWLEDGE', USER_DATA_DIR / 'knowledge'))
 TOKEN = os.getenv('WORKLOG_SESSION_TOKEN', 'dev-token')
 HOST = os.getenv('WORKLOG_HOST', '127.0.0.1')
 PORT = int(os.getenv('WORKLOG_PORT', '8765'))
+BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
+PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
 from app.ai.router import router as ai_router
 app.include_router(ai_router)
@@ -92,6 +94,21 @@ def db():
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); return c
 def auth(authorization: Optional[str]):
     if authorization != f'Bearer {TOKEN}': raise HTTPException(401, 'Invalid session token')
+
+def request_server_shutdown() -> None:
+    callback = getattr(app.state, 'shutdown_callback', None)
+    if callback:
+        callback()
+
+@app.post('/runtime/shutdown')
+async def runtime_shutdown(request: Dict[str, Any], authorization: Optional[str] = Header(None)):
+    auth(authorization)
+    if request.get('generation') != BACKEND_GENERATION:
+        raise HTTPException(409, 'Backend generation does not match')
+    # The callback only flips Uvicorn's exit flag.  It never persists any
+    # runtime-token or shutdown information to the business database.
+    asyncio.get_running_loop().call_soon(request_server_shutdown)
+    return {'accepted': True, 'generation': BACKEND_GENERATION}
 class ProjectIn(BaseModel):
     name: str = Field(min_length=1)
     workspace_path: Optional[str] = None
@@ -534,7 +551,53 @@ def search(q:str,authorization:Optional[str]=Header(None)):
 def ask(q:str,authorization:Optional[str]=Header(None)):
     auth(authorization); return {'answer':'未配置模型，以下为关键词检索结果。','sources':search(q,authorization)}
 
+def parent_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return True
+    if os.name == 'nt':
+        # OpenProcess(SYNCHRONIZE) plus WaitForSingleObject avoids polling and
+        # is reliable for the Windows EXE produced by PyInstaller.
+        handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
+        if not handle:
+            return False
+        try:
+            return ctypes.windll.kernel32.WaitForSingleObject(handle, 0) == 0x00000102
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+def start_parent_watchdog(callback) -> threading.Event:
+    stopped = threading.Event()
+    if PARENT_PID <= 0:
+        return stopped
+    def watch() -> None:
+        if os.name == 'nt':
+            handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, PARENT_PID)
+            if handle:
+                try:
+                    ctypes.windll.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
+                    if not stopped.is_set(): callback()
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                return
+        # Compatibility fallback for non-Windows or an inaccessible handle.
+        while not stopped.wait(1.0):
+            if not parent_is_alive(PARENT_PID):
+                callback(); return
+    threading.Thread(target=watch, name='parent-process-watchdog', daemon=True).start()
+    return stopped
+
 if __name__ == '__main__':
     import uvicorn
     db()
-    uvicorn.run(app, host=HOST, port=PORT, log_level='warning')
+    server = uvicorn.Server(uvicorn.Config(app, host=HOST, port=PORT, log_level='warning'))
+    app.state.shutdown_callback = lambda: setattr(server, 'should_exit', True)
+    watchdog_stop = start_parent_watchdog(app.state.shutdown_callback)
+    try:
+        server.run()
+    finally:
+        watchdog_stop.set()

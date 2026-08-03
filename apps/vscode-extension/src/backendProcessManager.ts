@@ -1,5 +1,7 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { ChildProcess, execFile, spawn, SpawnOptions } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as net from 'node:net';
 import { ApiClient } from './apiClient';
 import { BackendState } from './backendState';
@@ -24,6 +26,8 @@ export interface BackendProcessManagerOptions {
   healthCheck?: (baseUrl: string, token: string) => Promise<void>;
   mkdir?: (directory: string) => void;
   logPath?: string;
+  runtimeRegistryDir?: string;
+  extensionInstanceId?: string;
 }
 
 export interface BackendStateChange {
@@ -96,6 +100,10 @@ export class BackendProcessManager {
   private activePort: number;
   private generation = 0;
   private activeGeneration = 0;
+  private readonly extensionInstanceId: string;
+  private stopPromise?: Promise<void>;
+  private shutdownPromise?: Promise<void>;
+  private shutdownRequested = false;
 
   constructor(private readonly options: BackendProcessManagerOptions) {
     this.spawnProcess = options.spawnProcess || spawn;
@@ -107,6 +115,7 @@ export class BackendProcessManager {
     this.portSelector = options.portSelector || selectAvailablePort;
     this.killProcess = options.killProcess || terminateOwnedProcess;
     this.activePort = options.port;
+    this.extensionInstanceId = options.extensionInstanceId || randomUUID();
   }
 
   get state(): BackendState { return this.currentState; }
@@ -117,6 +126,8 @@ export class BackendProcessManager {
   get lastErrorMessage(): string | undefined { return this.lastError; }
   get logPath(): string | undefined { return this.options.logPath; }
   get dataDir(): string { return this.options.dataDir; }
+  get backendGeneration(): number { return this.activeGeneration; }
+  get instanceId(): string { return this.extensionInstanceId; }
 
   onDidChangeState(listener: Listener): { dispose: () => void } {
     this.listeners.add(listener);
@@ -124,6 +135,7 @@ export class BackendProcessManager {
   }
 
   async start(): Promise<ApiClient> {
+    if (this.shutdownRequested) throw new Error('后端正在关闭，不能启动新进程');
     if (this.startPromise) return this.startPromise;
     if (this.client && this.currentState === 'healthy') return this.client;
     this.startPromise = this.startInternal().finally(() => { this.startPromise = undefined; });
@@ -158,10 +170,14 @@ export class BackendProcessManager {
           WORKLOG_DATA_DIR: this.options.dataDir,
           AI_WORKLOG_DATA_DIR: this.options.dataDir,
           AI_WORKLOG_RUNTIME_MODE: this.options.runtimeMode || 'production',
+          WORKLOG_EXTENSION_HOST_PID: String(process.pid),
+          WORKLOG_EXTENSION_INSTANCE_ID: this.extensionInstanceId,
+          WORKLOG_BACKEND_GENERATION: String(processGeneration),
         },
         windowsHide: true,
       });
       this.process = child;
+      this.writeRegistry(executable, child.pid, processGeneration, 'starting');
       this.log(`spawn 成功：PID=${child.pid ?? 'unknown'}`);
       child.stdout?.on('data', data => this.log(`[stdout] ${String(data).trimEnd()}`));
       child.stderr?.on('data', data => this.log(`[stderr] ${String(data).trimEnd()}`));
@@ -185,6 +201,7 @@ export class BackendProcessManager {
         this.log(`后端退出：PID=${child.pid ?? 'unknown'}，exitCode=${code ?? 'null'}，exitSignal=${signal ?? 'none'}`);
         this.client = undefined;
         this.process = undefined;
+        this.removeRegistry();
         if (abnormal) this.setState('error', `后端异常退出（退出码 ${code ?? 'null'}）`);
         else if (this.currentState !== 'stopping') this.setState('stopped');
       });
@@ -199,6 +216,7 @@ export class BackendProcessManager {
       try {
         await this.withTimeout(this.healthCheck(baseUrl, this.token), this.healthRequestTimeoutMs);
         this.client = new ApiClient(baseUrl, this.token);
+        this.writeRegistry(executable, this.process?.pid, processGeneration, 'healthy');
         this.log(`health 请求结果：healthy；端口=${this.activePort}`);
         this.setState('healthy');
         return this.client;
@@ -227,25 +245,50 @@ export class BackendProcessManager {
   }
 
   async restart(): Promise<ApiClient> {
+    if (this.shutdownRequested) throw new Error('后端正在关闭，不能重启');
     this.log('重启流程：开始停止旧进程');
     await this.stop();
     this.log('重启流程：旧进程已停止，开始启动新进程');
+    if (this.shutdownRequested) throw new Error('后端正在关闭，取消重启');
     return this.start();
   }
 
   async stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopPromise = this.stopInternal().finally(() => { this.stopPromise = undefined; });
+    return this.stopPromise;
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shutdownRequested = true;
+    this.shutdownPromise = this.stop();
+    return this.shutdownPromise;
+  }
+
+  private async stopInternal(): Promise<void> {
     const child = this.process;
     this.client = undefined;
-    if (!child) { this.setState('stopped'); return; }
+    if (!child) { this.removeRegistry(); this.setState('stopped'); return; }
     this.stopping = true;
     this.setState('stopping');
     this.log(`停止流程：PID=${child.pid ?? 'unknown'}`);
-    await this.killProcess(child);
-    await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, this.stopTimeoutMs);
-      child.once('exit', () => { clearTimeout(timer); resolve(); });
+    const exited = new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => resolve(false), this.stopTimeoutMs);
+      child.once('exit', () => { clearTimeout(timer); resolve(true); });
     });
+    try {
+      const client = this.client || new ApiClient(`http://127.0.0.1:${this.activePort}`, this.token);
+      await this.withTimeout(client.shutdown(this.activeGeneration), Math.min(1500, this.stopTimeoutMs));
+      this.log('停止流程：已请求后端优雅关闭');
+    } catch (error) { this.log(`停止流程：优雅关闭不可用：${safeError(error)}`); }
+    if (!await exited) {
+      this.log('停止流程：优雅关闭超时，仅终止已登记的当前子进程树');
+      await this.killProcess(child);
+      await new Promise<void>(resolve => { const timer = setTimeout(resolve, this.stopTimeoutMs); child.once('exit', () => { clearTimeout(timer); resolve(); }); });
+    }
     if (this.process === child) this.process = undefined;
+    this.removeRegistry();
     this.log(`停止流程完成：PID=${child.pid ?? 'unknown'}`);
     this.setState('stopped');
   }
@@ -259,4 +302,16 @@ export class BackendProcessManager {
   }
 
   private log(message: string): void { this.options.logger?.appendLine(redact(message, this.token)); }
+
+  private registryFile(): string | undefined { return this.options.runtimeRegistryDir ? path.join(this.options.runtimeRegistryDir, `${this.extensionInstanceId}.json`) : undefined; }
+  private writeRegistry(executablePath: string, pid: number | undefined, generation: number, state: 'starting' | 'healthy'): void {
+    const file = this.registryFile(); if (!file || !pid) return;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const record = { schemaVersion: 'backend-process-owner/v1', extensionInstanceId: this.extensionInstanceId, backendGeneration: generation, backendPid: pid, extensionHostPid: process.pid, executablePath, dataDirectory: this.options.dataDir, startedAt: new Date().toISOString(), lastHeartbeatAt: new Date().toISOString(), state };
+      const temporary = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify(record), { encoding: 'utf8', mode: 0o600 }); fs.renameSync(temporary, file);
+    } catch (error) { this.log(`运行时登记写入失败：${safeError(error)}`); }
+  }
+  private removeRegistry(): void { const file = this.registryFile(); if (!file) return; try { fs.rmSync(file, { force: true }); } catch (error) { this.log(`运行时登记清理失败：${safeError(error)}`); } }
 }

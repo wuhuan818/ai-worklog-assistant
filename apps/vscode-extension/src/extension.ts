@@ -155,6 +155,7 @@ async function addNote(state: TaskState, server: ServerManager): Promise<void> {
 async function submitManualNote(state: TaskState, server: ServerManager, note: string): Promise<void> { if (!state.task || !note.trim() || note.trim().length > 4000) throw new Error('备注内容无效'); await (await ensureServer(server)).batchEvents(state.task.id, [{ client_event_id: `${Date.now()}-manual`, event_type: 'manual_note', source: 'vscode', occurred_at: new Date().toISOString(), payload: { text: note.trim() } }]); }
 
 let activeServer: ServerManager | undefined;
+let activeEvents: EventCaptureController | undefined;
 async function configureAi(store: AiProfileStore): Promise<void> {
   const display = await promptText({ prompt: 'AI Profile 名称' }); if (display.kind === 'cancelled' || !display.value.trim()) return;
   const providerPick = await promptPick([{ label: 'DeepSeek', provider: 'deepseek' as AiProviderKind }, { label: 'Qwen', provider: 'qwen' as AiProviderKind }, { label: 'Custom OpenAI-compatible', provider: 'openai-compatible' as AiProviderKind }], { title: 'AI Provider' }); if (providerPick.kind === 'cancelled') return;
@@ -191,6 +192,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const recovery = new RecoveryController(state, message => logger.appendLine(`[recovery] ${message}`));
     void startBackendOnActivation(server, logger);
     const events = new EventCaptureController(state, () => server.api, message => logger.appendLine(`[events] ${message}`), () => bugs.activeBugId);
+    activeEvents = events;
     const sync = async () => {
       if (!server.api) return;
       const identity = resolveWorkspaceIdentity();
@@ -238,10 +240,16 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('aiWorklog.sidebar', providerView));
     context.subscriptions.push(events);
     const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left); status.text = '$(pencil) Worklog'; status.command = 'aiWorklog.startTask'; status.show(); context.subscriptions.push(status);
-    context.subscriptions.push({ dispose: () => { bugs.dispose(); void events.flush(); void server.stop(); } });
+    context.subscriptions.push({ dispose: () => { bugs.dispose(); void events.flush(); void server.shutdown(); } });
   } catch (error) {
     logger.appendLine(`[activation-error] ${error instanceof Error ? error.message : String(error)}`);
     vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
 }
-export async function deactivate(): Promise<void> { await activeServer?.stop(); activeServer = undefined; }
+export async function deactivate(): Promise<void> {
+  const flush = activeEvents?.flush();
+  if (flush) await Promise.race([flush, new Promise<void>(resolve => setTimeout(resolve, 2000))]);
+  await activeServer?.shutdown();
+  activeEvents = undefined;
+  activeServer = undefined;
+}

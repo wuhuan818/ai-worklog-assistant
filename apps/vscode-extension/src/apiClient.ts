@@ -35,6 +35,7 @@ export class ApiClient {
   }
 
   health(): Promise<{ status: string; service: string }> { return this.request('/health', { headers: {} }); }
+  shutdown(generation: number): Promise<{ accepted: boolean; generation: number }> { return this.request('/runtime/shutdown', { method: 'POST', body: JSON.stringify({ generation }) }); }
   listProjects(): Promise<ProjectView[]> { return this.request('/projects'); }
   createProject(input: { name: string; workspace_path?: string; workspace_identity_key?: string; workspace_identity_version?: number; workspace_kind?: string; canonical_workspace_uri?: string }): Promise<ProjectView> { return this.request('/projects', { method: 'POST', body: JSON.stringify(input) }); }
   resolveProject(input: { name: string; workspace_path?: string; workspace_identity_key: string; workspace_identity_version: number; workspace_kind: string; canonical_workspace_uri?: string }): Promise<ProjectResolution> { return this.request('/projects/resolve', { method: 'POST', body: JSON.stringify(input) }); }
