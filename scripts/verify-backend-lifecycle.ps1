@@ -31,10 +31,13 @@ try {
   $authorized = Invoke-WebRequest -UseBasicParsing -Headers @{ Authorization = "Bearer $token" } -Uri "http://127.0.0.1:$port/projects" -TimeoutSec 2
   Pass 'TOKEN_ACCEPTANCE' ($authorized.StatusCode -eq 200)
   Pass 'USER_DATA_DIR' (Test-Path -LiteralPath (Join-Path $dataDir 'worklog.db')) $dataDir
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline
+  $firstPid = $rootPid
+  $shutdown = Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body '{"generation":0}' -Uri "http://127.0.0.1:$port/runtime/shutdown" -TimeoutSec 2
+  Pass 'GRACEFUL_SHUTDOWN_ACCEPTED' ($shutdown.accepted -eq $true -and $shutdown.generation -eq 0)
+  Pass 'GRACEFUL_SHUTDOWN_EXITED' (Wait-BackendProcessTreeExit -RootPid $rootPid -TimeoutSeconds 10 -Port $port)
+  $rootPid = 0
   Pass 'DATA_PRESERVED_AFTER_STOP' (Test-Path -LiteralPath (Join-Path $dataDir 'worklog.db'))
 
-  $firstPid = $rootPid
   $rootPid = Start-TestBackend -ExecutablePath $exe -DataDir $dataDir -Token $token -Port $port -Stage 'restart'
   Pass 'RESTART' ($rootPid -ne $firstPid) "old=$firstPid new=$rootPid"
   Wait-BackendHealthy -Port $port -RootPid $rootPid -TimeoutSeconds 15 -Stage 'restart'
