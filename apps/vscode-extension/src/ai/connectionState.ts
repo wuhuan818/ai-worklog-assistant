@@ -16,6 +16,7 @@ export class AiConnectionStateStore {
   testing(profile: AiProviderProfile): void { this.set(profile.id, 'testing'); }
   connected(profile: AiProviderProfile): void { this.set(profile.id, 'connected'); }
   failed(profile: AiProviderProfile): void { this.set(profile.id, 'failed'); }
+  notTested(profile: AiProviderProfile): void { this.set(profile.id, 'not-tested'); }
   private set(profileId: string, connection: AiConnectionState): void {
     this.snapshot = { version: this.snapshot.version + 1, profileId, connection, lastTest: connection === 'testing' ? this.snapshot.lastTest : new Date().toISOString() };
     this.listeners.forEach(listener => listener(this.snapshot));

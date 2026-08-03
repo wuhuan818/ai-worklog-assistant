@@ -154,7 +154,8 @@
                     "test:e2e:bug-lifecycle":  "node test/runBugLifecycleE2E.js",
                     "test:e2e:data-continuity": "node test/runDataContinuityE2E.js",
                     "test:e2e:canary": "node test/runCanaryE2E.js",
-                    "test:e2e:ai-provider": "node test/runAiProviderE2E.js"
+                    "test:e2e:ai-provider": "node test/runAiProviderE2E.js",
+                    "test:e2e:ai-provider-smoke": "node test/runAiProviderSmokeE2E.js"
                 },
     "devDependencies":  {
                             "@types/node":  "^20.0.0",

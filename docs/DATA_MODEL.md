@@ -15,3 +15,7 @@
 Projects retain their existing IDs and add identity key, version, kind,
 canonical URI and last-seen metadata. Identity resolution is transactional and
 legacy workspace-path projects are upgraded in place.
+
+## Stage 07 provider data boundary
+
+Provider profiles are not SQLite entities. Non-secret profile metadata is kept in VS Code `globalState`; API keys are exclusively VS Code SecretStorage entries. No provider key, Authorization header, model response, or connection-test payload is added to SQLite, workspace state, or extension configuration.

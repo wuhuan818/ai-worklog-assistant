@@ -9,3 +9,7 @@ The extension owns a stable global-storage data directory and passes it
 explicitly to every backend process. Workspace identity resolution occurs only
 after the backend is healthy; event capture is enabled only after a matching
 active task has been restored.
+
+## Stage 07 AI provider boundary
+
+Provider profiles are extension-owned user configuration. Profile metadata is stored in VS Code `globalState`; the API key is read only from `SecretStorage` under `aiWorklog.aiProvider.<profile-id>.apiKey`. The local FastAPI service is stateless for connection checks: it receives a key only for that request and does not persist it to SQLite, logs, or responses. Connection tests use a fixed synthetic prompt and never include work items, Bugs, events, notes, source, or diffs. Summary generation remains outside Stage 07.

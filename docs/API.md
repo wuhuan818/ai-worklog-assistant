@@ -19,3 +19,7 @@ Bug 仅属于当前 `local-user` 的同一项目、同一任务。接口为 `GET
 
 `POST /projects/resolve` atomically finds or creates a project from a versioned
 workspace identity and returns `{ project, created, matched_by }`.
+
+## Stage 07: provider connection check
+
+`POST /ai/providers/test-connection` accepts a Provider kind, base URL, model, thinking preference, timeout and an API key supplied by the extension. It performs one bounded, non-streaming completion request containing only a fixed connection-test prompt. It returns a redacted success/error result; keys and provider response bodies are never returned or persisted. Supported Provider kinds are `deepseek`, `qwen`, and `openai-compatible`. DeepSeek sends an explicit `thinking.type` setting, Qwen sends `enable_thinking`, and custom providers use standard OpenAI-compatible completion fields.

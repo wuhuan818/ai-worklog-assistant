@@ -57,3 +57,12 @@ npm.cmd run test:e2e:canary
 ```
 
 The downloaded VS Code test process must be launched outside the restrictive filesystem sandbox. Do not use the user's installed VS Code or `--disable-extensions`; the latter prevents the VS Code extension-test runner from loading. Failed diagnostics are retained under `artifacts/e2e-diagnostics` and contain no API keys.
+
+## Stage 07 final Provider evidence
+
+Run `scripts\verify-ai-provider-foundation.ps1` for the backend contract and `scripts\verify-extension-host-ai-provider-e2e.ps1` for the real Extension Host. The latter uses an in-memory fake provider and a unique synthetic key; the key and Authorization header must not appear in artifacts or logs. It covers provider switching, SecretStorage, profile persistence, reconnect behavior, view reopening, and redacted HTTP/transport/invalid-response failures. The normalized result is `artifacts/test-results/stage07-ai-provider-foundation.json`; it is UTF-8 JSON without a BOM and derives Extension Host booleans from that run rather than hand-editing them.
+
+The Stage 06 data-continuity verifier intentionally does not retry a failed Extension Host run. `runDataContinuityDiagnostic.js` is a diagnostic-only entry point: it preserves a failed bounded diagnostic directory and cleans a successful one; it is not an alternate passing test path.
+## Stage 7 snapshot verification boundary
+
+The Stage 7 snapshot includes three Provider-contract rounds, two short Provider smoke rounds, Python and TypeScript verification, and backend lifecycle stages 2–5. The Stage 6 final run exceeded its execution window, while final Event and Bug Extension Host regressions were not rerun; none of these are claimed as passing in the Stage 7 snapshot report. Manual acceptance separately verified real DeepSeek connection, restart persistence, connection reset to `not-tested`, reconnection, view reopen, and API-key redaction.

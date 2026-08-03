@@ -23,3 +23,10 @@ The sidebar previously mixed timer refreshes with independent backend/task/Bug b
 
 Possible moved workspaces are not silently rebound. The user must explicitly
 choose any future rebinding workflow; current identity safety favors isolation.
+
+## Stage 07 scope boundary
+
+Stage 07 establishes secure Provider configuration and synthetic connection checks only. It does not call a real paid Provider during automated tests, send task/Bug/event/note/source/diff data, generate work summaries, implement RAG/embeddings, or add automatic cross-provider fallback. Real DeepSeek and Qwen credentials remain a final human acceptance check. The prior Windows Extension Host `code 1` path-splitting issue is resolved by the pinned 1.85.2 launcher using `shell: false`; it is not a current product limitation.
+## Stage 7 backend shutdown stability
+
+In some VS Code shutdown paths, the extension-owned local backend can survive after the Extension Host exits. This is a product lifecycle defect, not merely a test limitation: it can retain ports and process generations, interfere with later Extension Host runs, and leave build artifacts occupied. Stage 7 is an accepted snapshot with this known blocker. The planned corrective scope is `stage/07.1-backend-shutdown-stability`; no Stage 8 work should start before it is resolved and formally verified.

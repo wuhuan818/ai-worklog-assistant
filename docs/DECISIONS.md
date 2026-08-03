@@ -17,3 +17,14 @@
 Workspace paths are not names: Windows path variants canonicalize into a
 versioned identity hash. Git metadata remains deliberately outside the primary
 identity to avoid silently merging worktrees or moved checkouts.
+
+## Stage 07
+
+- Provider connection checks are deliberately synthetic and stateless. Stage 07 configures providers but does not submit work data or generate summaries.
+- Secrets use VS Code SecretStorage, while profiles use `globalState`; this preserves profile selection without making API keys inspectable in settings or the local database.
+- DeepSeek, Qwen and custom OpenAI-compatible payloads are explicit rather than silently falling back to another provider.
+- Qwen workspace domains are derived from a selected region and Workspace ID; the displayed endpoint replaces that ID with `<workspace>`.
+- Extension Host E2E downloads VS Code 1.85.2 and launches it with `shell: false`. This avoids Windows path splitting caused by the test-electron launcher and retains a canary before functional suites.
+## Stage 7 checkpoint decision
+
+Stage 7 is committed as `accepted-with-known-blocker`: implementation and manual acceptance are complete, but final Stage 6 and Event/Bug Extension Host evidence is incomplete. The known blocker is extension-owned backend process survival after VS Code shutdown. This distinction prevents an unverified full-regression claim while preserving the reviewed Provider foundation as the baseline for Stage 7.1.
