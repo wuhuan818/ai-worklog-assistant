@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationError, validator
+from app.ai.context.models import ContextBuildRequest
 
 ROOT = Path(__file__).resolve().parents[3]
 USER_DATA_DIR = Path(os.getenv('AI_WORKLOG_DATA_DIR') or os.getenv('WORKLOG_DATA_DIR') or Path.home() / 'AppData' / 'Local' / 'AIWorklogAssistant').expanduser().resolve()
@@ -42,6 +43,10 @@ def db():
       CREATE TABLE IF NOT EXISTS summary_drafts(id TEXT PRIMARY KEY,task_id TEXT,status TEXT,content TEXT,created_at TEXT,updated_at TEXT);
       CREATE TABLE IF NOT EXISTS knowledge_entries(id TEXT PRIMARY KEY,task_id TEXT,type TEXT,title TEXT,content TEXT,source_file TEXT);
     ''')
+    # Context packages are immutable sanitized snapshots.  The repository owns
+    # its additive migration so older local databases remain compatible.
+    from app.ai.context.repository import ensure_schema
+    ensure_schema(c)
     def add_column(table: str, column: str, declaration: str):
         columns = {row['name'] for row in c.execute(f'PRAGMA table_info({table})')}
         if column not in columns: c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {declaration}')
@@ -264,6 +269,62 @@ def create_task(x: TaskIn, authorization: Optional[str]=Header(None)):
     except Exception:
         c.rollback(); raise
     return task(tid,authorization)
+@app.get('/tasks')
+def list_tasks(status: Optional[str]=None, authorization: Optional[str]=Header(None)):
+    """Compatibility list endpoint; Context UI uses status=completed."""
+    auth(authorization)
+    c=db(); params=['local-user']; where='user_id=?'
+    if status:
+        where += ' AND status=?'; params.append(status)
+    return [task_output(row) for row in c.execute(f'SELECT * FROM tasks WHERE {where} ORDER BY COALESCE(ended_at,started_at) DESC,id DESC', params)]
+
+def context_http_error(error):
+    raise HTTPException(400 if error.code not in {'task_not_found','context_not_found'} else 404, {'code': error.code, 'message': error.message})
+
+@app.post('/tasks/{task_id}/ai/context-packages')
+def build_context_package(task_id: str, request: Dict[str, Any], authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    from app.ai.context.service import ContextError, build_package
+    try:
+        request = ContextBuildRequest.model_validate(request) if hasattr(ContextBuildRequest, 'model_validate') else ContextBuildRequest.parse_obj(request)
+    except ValidationError:
+        raise HTTPException(400, {'code':'invalid_build_config','message':'Build configuration is invalid'})
+    c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        result=build_package(c,task_id,request.config,request.idempotency_key,now()); c.commit(); return result
+    except ContextError as error:
+        c.rollback(); context_http_error(error)
+    except Exception:
+        c.rollback(); raise
+
+@app.get('/tasks/{task_id}/ai/context-packages')
+def list_context_packages(task_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    from app.ai.context import repository
+    c=db(); repository.ensure_schema(c)
+    if not c.execute('SELECT 1 FROM tasks WHERE id=? AND user_id=?',(task_id,'local-user')).fetchone():
+        raise HTTPException(404, {'code':'task_not_found','message':'Task was not found'})
+    return {'items':repository.list_for_task(c,task_id)}
+
+@app.get('/ai/context-packages/{context_id}')
+def get_context_package(context_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    from app.ai.context import repository
+    package=repository.get(db(),context_id)
+    if not package: raise HTTPException(404, {'code':'context_not_found','message':'Context package was not found'})
+    return package
+
+@app.post('/ai/context-packages/{context_id}/ready')
+def ready_context_package(context_id: str, authorization: Optional[str]=Header(None)):
+    auth(authorization)
+    from app.ai.context.service import ContextError, ready_package
+    c=db(); c.execute('BEGIN IMMEDIATE')
+    try:
+        result=ready_package(c,context_id,now()); c.commit(); return result
+    except ContextError as error:
+        c.rollback(); context_http_error(error)
+    except Exception:
+        c.rollback(); raise
 @app.get('/tasks/{task_id}')
 def task(task_id: str, authorization: Optional[str]=Header(None)):
     auth(authorization); r=db().execute('SELECT * FROM tasks WHERE id=? AND user_id=?',(task_id,'local-user')).fetchone();

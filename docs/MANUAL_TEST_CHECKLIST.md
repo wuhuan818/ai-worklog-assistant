@@ -132,3 +132,11 @@ the same data directory and confirm the conflict state and no captured event.
 3. Repeat three times and confirm no additional backend remains.
 4. Reload Window; confirm the old backend exits and exactly one new healthy backend remains.
 5. Keep a task open, close/reopen the host, and confirm data persists.
+
+## Stage 08 AI Context Package
+
+1. In an Extension Development Host, create a task, add a normal note and a synthetic `token=stage8-manual-secret-123456` note, create and resolve a Bug, create a file event and Diagnostic, then end the task.
+2. Run **AI Worklog: 预览 AI 上下文**. Verify task/Bug sections, source counts, privacy and budget reports, estimated (not billed) tokens, relative paths, and a `<redacted:...>` placeholder. Do not use a real secret in this check.
+3. Confirm no user absolute directory, Authorization value or raw synthetic token appears in the panel or Output log. Confirm sensitive/binary file content is absent if such a recorded event exists.
+4. Select **标记为 Ready**, close and reopen the preview, and confirm the status remains Ready. Rebuild once only if a new version is desired; Ready does not call any Provider.
+5. Close the host normally and confirm only its owned backend exits. Reload Window and startup orphan cleanup remain Stage 7.1 manual/evidence gaps, not claims completed by this checklist.

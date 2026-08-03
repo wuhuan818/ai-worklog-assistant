@@ -17,3 +17,15 @@ Provider profiles are extension-owned user configuration. Profile metadata is st
 ## Stage 07.1 backend ownership boundary
 
 Every activation has a UUID instance ID and each backend launch has a generation. The extension writes a non-secret runtime registration under global storage, requests authenticated loopback shutdown during `deactivate()`, and permits a bounded PID-tree fallback only for its tracked child. Startup cleanup removes stale registrations and only terminates an orphan when its PID, executable path, process start time, and dead Extension Host parent all match.
+
+## Stage 08 AI context boundary
+
+The local server builds immutable `task-context-package/v1` snapshots only from already persisted work records. Context modules normalize paths, redact before budgeting, sort/deduplicate deterministically, calculate a local token estimate and store only sanitized JSON in SQLite. The extension is a local preview/Ready client: it never sends a package to a Provider or reads an API key. No Stage 08 flow scans a workspace, reopens a file, reads terminal history, environment variables, or SecretStorage.
+
+## Stage 08 AI context boundary
+
+The local server builds immutable `task-context-package/v1` snapshots only from already persisted work records. Context modules normalize paths, redact before budgeting, sort/deduplicate deterministically, calculate a local token estimate and store only sanitized JSON in SQLite. The extension is a local preview/Ready client: it never sends a package to a Provider or reads an API key. No Stage 08 flow scans a workspace, reopens a file, reads terminal history, environment variables, or SecretStorage.
+
+## Stage 08 AI context boundary
+
+The local server builds immutable `task-context-package/v1` snapshots only from already persisted work records. Its context modules normalize paths, redact before budgeting, sort/deduplicate deterministically, calculate a local token estimate and store only sanitized JSON in SQLite. The extension is a local preview/Ready client: it never sends a package to a Provider or reads an API key. No Stage 08 flow scans a workspace, reopens a file, reads terminal history, environment variables, or SecretStorage.

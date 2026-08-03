@@ -85,6 +85,18 @@
                                          {
                                              "command": "aiWorklog.deleteAiProvider",
                                              "title": "AI Worklog: 删除 AI Provider 配置"
+                                         },
+                                         {
+                                             "command": "aiWorklog.previewAiContext",
+                                             "title": "AI Worklog: 预览 AI 上下文"
+                                         },
+                                         {
+                                             "command": "aiWorklog.rebuildAiContext",
+                                             "title": "AI Worklog: 重新构建 AI 上下文"
+                                         },
+                                         {
+                                             "command": "aiWorklog.markAiContextReady",
+                                             "title": "AI Worklog: 将 AI 上下文标记为 Ready"
                                          }
                                      ],
                         "configuration":  {
@@ -142,6 +154,13 @@
                                                                  "aiWorklog.model":  {
                                                                                          "type":  "string",
                                                                                          "default":  ""
+                                                                                     },
+                                                                 "aiWorklog.aiContext.estimatedInputTokenBudget": {
+                                                                                         "type": "number",
+                                                                                         "default": 32000,
+                                                                                         "minimum": 4000,
+                                                                                         "maximum": 128000,
+                                                                                         "description": "AI Context Package 的估算输入 Token 预算；不是实际计费 Token。"
                                                                                      }
                                                              }
                                           }
@@ -149,7 +168,7 @@
     "scripts":  {
                     "compile":  "tsc -p .",
                     "lint":  "eslint src --ext .ts",
-                    "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js dist/ai/*.test.js",
+                    "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js dist/ai/*.test.js dist/ai/context/*.test.js",
                     "test:e2e:event-capture":  "node test/runEventCaptureE2E.js",
                     "test:e2e:bug-lifecycle":  "node test/runBugLifecycleE2E.js",
                     "test:e2e:data-continuity": "node test/runDataContinuityE2E.js",

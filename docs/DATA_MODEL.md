@@ -19,3 +19,15 @@ legacy workspace-path projects are upgraded in place.
 ## Stage 07 provider data boundary
 
 Provider profiles are not SQLite entities. Non-secret profile metadata is kept in VS Code `globalState`; API keys are exclusively VS Code SecretStorage entries. No provider key, Authorization header, model response, or connection-test payload is added to SQLite, workspace state, or extension configuration.
+
+## Stage 08 context package persistence
+
+`ai_context_packages` stores immutable sanitized Context Package versions: ID, schema version, project/task IDs, status, non-sensitive build-config JSON, sanitized context JSON, content hash, estimated token/redaction/truncation counts, lifecycle timestamps and idempotency key. Status is `preview`, `ready`, `superseded`, or `invalid`. SQLite enforces one Ready package per task and the Ready transition supersedes the previous version transactionally. No raw input snapshot, API key, Authorization header, Provider response or prompt is stored.
+
+## Stage 08 context package persistence
+
+`ai_context_packages` stores immutable sanitized Context Package versions: ID, schema version, project/task IDs, status, non-sensitive build-config JSON, sanitized context JSON, content hash, estimated token/redaction/truncation counts, lifecycle timestamps and idempotency key. Status is `preview`, `ready`, `superseded`, or `invalid`. SQLite enforces one Ready package per task and the Ready transition supersedes the previous version transactionally. No raw input snapshot, API key, Authorization header, Provider response or prompt is stored.
+
+## Stage 08 context package persistence
+
+`ai_context_packages` stores immutable sanitized Context Package versions: ID, schema version, project/task IDs, status, non-sensitive build-config JSON, sanitized context JSON, content hash, estimated token/redaction/truncation counts, lifecycle timestamps and idempotency key. Status is `preview`, `ready`, `superseded`, or `invalid`. SQLite enforces one Ready package per task and the Ready transition supersedes the previous version transactionally. No raw input snapshot, API key, Authorization header, Provider response or prompt is stored.

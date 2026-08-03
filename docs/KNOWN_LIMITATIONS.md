@@ -30,3 +30,9 @@ Stage 07 establishes secure Provider configuration and synthetic connection chec
 ## Stage 7 backend shutdown stability
 
 In some VS Code shutdown paths, the extension-owned local backend could survive after the Extension Host exited. This Stage 7 known blocker is **Resolved in stage 7.1** through an awaited shutdown path, authenticated server exit endpoint, parent-process watchdog, and per-instance runtime ownership record. Residual risks still require the dedicated Extension Host and packaged-EXE acceptance runs documented in Stage 7.1.
+
+## Stage 08 boundary and inherited evidence gaps
+
+Context Package v1 is deliberately a local preview/Ready snapshot only: it does not call an AI Provider, generate a summary, export Markdown, use RAG, or read source files beyond already persisted records. Token counts are estimates, not provider billing counts, and captured diffs may be unavailable or truncated by privacy/budget rules.
+
+The Stage 7.1 direct Reload Window automated regression and independent startup orphan-cleanup integration evidence are still not available. Stage 08 inherits and documents those gaps; it does not claim they are resolved or widen its smoke test into a lifecycle E2E.

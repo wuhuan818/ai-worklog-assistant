@@ -34,3 +34,10 @@ test('ApiClient rejects an invalid active task response instead of hiding it', a
   const transport: HttpTransport = { fetch: async () => new Response(JSON.stringify(null), { status: 200 }) };
   await assert.rejects(() => new ApiClient('http://localhost', 'token', transport).activeTask(), (error: ApiError) => error.category === 'protocol' && error.message === '活动任务响应格式无效');
 });
+
+test('ApiClient lists only completed tasks for the context picker', async () => {
+  let url = '';
+  const client = new ApiClient('http://localhost', 'token', { fetch: async input => { url = String(input); return new Response(JSON.stringify([]), { status: 200 }); } });
+  assert.deepEqual(await client.listTasks('completed'), []);
+  assert.equal(url, 'http://localhost/tasks?status=completed');
+});

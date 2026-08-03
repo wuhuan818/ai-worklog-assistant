@@ -25,3 +25,7 @@ Stage 07 added secure DeepSeek, Qwen and Custom OpenAI-compatible connection con
 ## Stage 07.1 collaboration record
 
 Stage 7.1 prioritizes product lifecycle correctness over test cleanup. Backend termination is tied to an instance registration and exact PID identity; diagnostics redact tokens and never store provider keys. GUI Extension Host tests require execution outside the restrictive sandbox, while temporary profiles and test data remain isolated.
+
+## Stage 08 collaboration record
+
+Stage 08 adds a deterministic, privacy-first Context Package v1 from persisted work records. The implementation separates schema/build/persistence, redaction and budgeting, and extension preview ownership. It uses no external AI request and never reads SecretStorage. Verification produces its report from isolated observed data and scans only test artifacts for synthetic-secret/Authorization/absolute-path leaks. The Stage 7.1 Reload Window and startup orphan-cleanup direct-evidence gaps are retained explicitly as inherited non-blocking gaps.

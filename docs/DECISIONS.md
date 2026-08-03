@@ -32,3 +32,11 @@ Stage 7 is committed as `accepted-with-known-blocker`: implementation and manual
 ## Stage 7.1 decision
 
 The Stage 7 backend-survival blocker is resolved in Stage 7.1 through explicit backend ownership, authenticated graceful shutdown, a Windows parent-handle watchdog, and verified orphan cleanup. Same-name processes are never treated as proof of ownership. Build serialization uses an atomic lock with process-start-time validation and a unique PyInstaller work directory.
+
+## Stage 08 decision
+
+- Context Packages are local, immutable, sanitized input snapshots, not Provider requests. Stage 9 is deliberately gated on `ready`.
+- Privacy processing occurs before token budgeting and persistence; sensitive files and binary bodies are metadata-only.
+- Stable sorting, deduplication, canonical JSON and SHA-256 make repeated builds comparable. Volatile package/lifecycle fields are excluded from the content hash.
+- Token counts are local estimates, not provider billing tokens; no provider tokenizer or model mapping is introduced.
+- The Stage 7.1 Reload Window and startup-orphan-cleanup evidence gaps remain documented rather than being hidden by an unrelated Stage 08 E2E.

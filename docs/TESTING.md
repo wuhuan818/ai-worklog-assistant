@@ -70,3 +70,11 @@ Run `scripts\verify-backend-parent-watchdog.ps1` three times, `scripts\verify-ex
 ## Stage 7 snapshot verification boundary
 
 The Stage 7 snapshot includes three Provider-contract rounds, two short Provider smoke rounds, Python and TypeScript verification, and backend lifecycle stages 2–5. The Stage 6 final run exceeded its execution window, while final Event and Bug Extension Host regressions were not rerun; none of these are claimed as passing in the Stage 7 snapshot report. Manual acceptance separately verified real DeepSeek connection, restart persistence, connection reset to `not-tested`, reconnection, view reopen, and API-key redaction.
+
+## Stage 08 AI Context Package
+
+Run `scripts/verify-ai-context-package.ps1` twice. It uses an isolated local backend/data directory, validates v1 build determinism, redaction, sensitive-file exclusion, absolute-path removal, budgeting/truncation, provenance, Ready lifecycle and SQLite persistence, then writes `artifacts/test-results/stage08-ai-context-package.json`. The report generator writes observed assertions only; it is not a pre-created passing artifact.
+
+Run `scripts/verify-extension-host-ai-context-smoke-e2e.ps1` once for the bounded (90 second) Extension Host smoke. It uses an isolated test profile and synthetic secret only, with no Provider invocation. Failed diagnostics are retained; success removes temporary data. Neither script kills processes by image name or touches user VS Code processes.
+
+The Stage 7.1 direct Reload Window automation and independent startup orphan-cleanup integration evidence remain inherited gaps, not Stage 08 pass claims.

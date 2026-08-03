@@ -27,3 +27,21 @@ workspace identity and returns `{ project, created, matched_by }`.
 ## Stage 07.1 runtime shutdown
 
 `POST /runtime/shutdown` requires the existing local session bearer token and a non-secret backend `generation`. A mismatched generation returns 409; missing or invalid authentication returns 401. Success schedules real Uvicorn shutdown and does not write business SQLite data.
+
+## Stage 08: Context Package
+
+`POST /tasks/{task_id}/ai/context-packages` builds a sanitized Preview from a completed task. Its body contains `{config, idempotency_key}` where config is `context-build-config/v1`, has a 4,000–128,000 estimated-token budget (default 32,000), and inclusion toggles only; it contains no Provider or key. `GET /tasks/{task_id}/ai/context-packages` lists versions, `GET /ai/context-packages/{context_id}` returns a sanitized version, and `POST /ai/context-packages/{context_id}/ready` performs the Ready transition.
+
+Errors include `task_not_found`, `task_not_completed`, `invalid_build_config`, `minimum_context_exceeds_budget`, `context_not_found`, `context_invalid`, `context_not_ready`, `privacy_validation_failed`, `budget_validation_failed`, and `idempotency_conflict`. Ready validates schema, completed task, no raw secret, budget, hash and legal status transition; it never invokes a model.
+
+## Stage 08: Context Package
+
+`POST /tasks/{task_id}/ai/context-packages` builds a sanitized Preview from a completed task. Its body contains `{config, idempotency_key}` where config is `context-build-config/v1`, has a 4,000–128,000 estimated-token budget (default 32,000), and inclusion toggles only; it contains no Provider or key. `GET /tasks/{task_id}/ai/context-packages` lists versions, `GET /ai/context-packages/{context_id}` returns a sanitized version, and `POST /ai/context-packages/{context_id}/ready` performs the Ready transition.
+
+Errors include `task_not_found`, `task_not_completed`, `invalid_build_config`, `minimum_context_exceeds_budget`, `context_not_found`, `context_invalid`, `context_not_ready`, `privacy_validation_failed`, `budget_validation_failed`, and `idempotency_conflict`. Ready validates schema, completed task, no raw secret, budget, hash and legal status transition; it never invokes a model.
+
+## Stage 08: Context Package
+
+`POST /tasks/{task_id}/ai/context-packages` builds a sanitized Preview from a completed task. Its body contains `{config, idempotency_key}` where config is `context-build-config/v1`, has a 4,000–128,000 estimated-token budget (default 32,000), and inclusion toggles only; it contains no Provider or key. `GET /tasks/{task_id}/ai/context-packages` lists versions, `GET /ai/context-packages/{context_id}` returns a sanitized version, and `POST /ai/context-packages/{context_id}/ready` performs the Ready transition.
+
+Errors include `task_not_found`, `task_not_completed`, `invalid_build_config`, `minimum_context_exceeds_budget`, `context_not_found`, `context_invalid`, `context_not_ready`, `privacy_validation_failed`, `budget_validation_failed`, and `idempotency_conflict`. Ready validates schema, completed task, no raw secret, budget, hash and legal status transition; it never invokes a model.
