@@ -97,6 +97,18 @@
                                          {
                                              "command": "aiWorklog.markAiContextReady",
                                              "title": "AI Worklog: 将 AI 上下文标记为 Ready"
+                                         },
+                                         {
+                                             "command": "aiWorklog.generateAiSummaryDraft",
+                                             "title": "AI Worklog: 生成 AI 总结草稿"
+                                         },
+                                         {
+                                             "command": "aiWorklog.viewAiSummaryDrafts",
+                                             "title": "AI Worklog: 查看 AI 总结草稿"
+                                         },
+                                         {
+                                             "command": "aiWorklog.cancelAiSummaryGeneration",
+                                             "title": "AI Worklog: 取消 AI 总结生成"
                                          }
                                      ],
                         "configuration":  {
@@ -168,7 +180,7 @@
     "scripts":  {
                     "compile":  "tsc -p .",
                     "lint":  "eslint src --ext .ts",
-                    "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js dist/ai/*.test.js dist/ai/context/*.test.js",
+                    "test":  "npm run compile \u0026\u0026 node --test dist/*.test.js dist/ai/*.test.js dist/ai/context/*.test.js dist/ai/generation/*.test.js",
                     "test:e2e:event-capture":  "node test/runEventCaptureE2E.js",
                     "test:e2e:bug-lifecycle":  "node test/runBugLifecycleE2E.js",
                     "test:e2e:data-continuity": "node test/runDataContinuityE2E.js",

@@ -21,6 +21,8 @@ PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
 from app.ai.router import router as ai_router
 app.include_router(ai_router)
+from app.ai.generation.router import router as generation_router
+app.include_router(generation_router)
 
 def now() -> str: return datetime.now(timezone.utc).isoformat()
 def normalize_workspace(value: Optional[str]) -> str:
@@ -47,6 +49,8 @@ def db():
     # its additive migration so older local databases remain compatible.
     from app.ai.context.repository import ensure_schema
     ensure_schema(c)
+    from app.ai.generation.repository import ensure_schema as ensure_generation_schema
+    ensure_generation_schema(c)
     def add_column(table: str, column: str, declaration: str):
         columns = {row['name'] for row in c.execute(f'PRAGMA table_info({table})')}
         if column not in columns: c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {declaration}')
@@ -99,6 +103,12 @@ def db():
     c.execute('INSERT OR IGNORE INTO users VALUES (?,?)', ('local-user','Local User')); return c
 def auth(authorization: Optional[str]):
     if authorization != f'Bearer {TOKEN}': raise HTTPException(401, 'Invalid session token')
+
+@app.on_event('startup')
+def interrupt_incomplete_generation_jobs() -> None:
+    """Paid provider calls are never resumed after this backend process starts."""
+    from app.ai.generation.repository import interrupt_active
+    c = db(); interrupt_active(c, now()); c.commit()
 
 def request_server_shutdown() -> None:
     callback = getattr(app.state, 'shutdown_callback', None)

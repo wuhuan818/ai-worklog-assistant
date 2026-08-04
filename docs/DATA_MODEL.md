@@ -24,6 +24,10 @@ Provider profiles are not SQLite entities. Non-secret profile metadata is kept i
 
 `ai_context_packages` stores immutable sanitized Context Package versions: ID, schema version, project/task IDs, status, non-sensitive build-config JSON, sanitized context JSON, content hash, estimated token/redaction/truncation counts, lifecycle timestamps and idempotency key. Status is `preview`, `ready`, `superseded`, or `invalid`. SQLite enforces one Ready package per task and the Ready transition supersedes the previous version transactionally. No raw input snapshot, API key, Authorization header, Provider response or prompt is stored.
 
+## Stage 09 generation and draft persistence
+
+`ai_generation_jobs` records safe lifecycle metadata for a context/profile/model request: IDs, context hash/schema, token usage, latency, attempt count, timestamps, status, idempotency key, and redacted error summary. Active statuses are interrupted on backend restart and are never automatically resumed. `ai_summary_drafts` stores immutable validated `ai-summary-draft/v1` JSON, its content hash, provider/model/prompt/context metadata, and output redaction count. No table stores API keys, Authorization, full prompts, raw provider responses, or reasoning; Stage 09 does not use approved/rejected states.
+
 ## Stage 08 context package persistence
 
 `ai_context_packages` stores immutable sanitized Context Package versions: ID, schema version, project/task IDs, status, non-sensitive build-config JSON, sanitized context JSON, content hash, estimated token/redaction/truncation counts, lifecycle timestamps and idempotency key. Status is `preview`, `ready`, `superseded`, or `invalid`. SQLite enforces one Ready package per task and the Ready transition supersedes the previous version transactionally. No raw input snapshot, API key, Authorization header, Provider response or prompt is stored.

@@ -29,3 +29,7 @@ Stage 7.1 prioritizes product lifecycle correctness over test cleanup. Backend t
 ## Stage 08 collaboration record
 
 Stage 08 adds a deterministic, privacy-first Context Package v1 from persisted work records. The implementation separates schema/build/persistence, redaction and budgeting, and extension preview ownership. It uses no external AI request and never reads SecretStorage. Verification produces its report from isolated observed data and scans only test artifacts for synthetic-secret/Authorization/absolute-path leaks. The Stage 7.1 Reload Window and startup orphan-cleanup direct-evidence gaps are retained explicitly as inherited non-blocking gaps.
+
+## Stage 09 collaboration record
+
+Stage 09 separates Provider structured generation/validation, job-and-draft persistence, extension confirmation/panel work, and verification documentation. The verification path uses a local Fake Provider and a fresh synthetic secret for each run; reports contain only aggregate security counters. Core flows preserve the Ready Context input boundary and do not add Stage 10 editing or knowledge publication behavior.

@@ -106,4 +106,4 @@ async function run() {
   } catch (error) { report.durationSeconds = Math.round((Date.now() - started) / 1000); writeReport({ error: error instanceof Error ? error.message : String(error) }); throw error; }
 }
 
-exports.run = process.env.STAGE08_CONTEXT_SMOKE ? require('./aiContextSmoke').run : process.env.STAGE071_E2E_REPORT ? require('./backendShutdown').run : process.env.STAGE7_SMOKE_E2E ? require('./aiProviderSmoke').run : process.env.STAGE6_E2E_PHASE ? require('./dataContinuity').run : process.env.STAGE5_E2E_REPORT ? require('./bugLifecycle').run : run;
+exports.run = process.env.STAGE09_SUMMARY_SMOKE ? require('./aiSummarySmoke').run : process.env.STAGE08_CONTEXT_SMOKE ? require('./aiContextSmoke').run : process.env.STAGE071_E2E_REPORT ? require('./backendShutdown').run : process.env.STAGE7_SMOKE_E2E ? require('./aiProviderSmoke').run : process.env.STAGE6_E2E_PHASE ? require('./dataContinuity').run : process.env.STAGE5_E2E_REPORT ? require('./bugLifecycle').run : run;

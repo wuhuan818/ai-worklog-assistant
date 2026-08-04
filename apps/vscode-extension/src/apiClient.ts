@@ -17,6 +17,11 @@ export interface AiContextBuildConfig { schema_version: 'context-build-config/v1
 export interface AiContextBody { schema_version: 'task-context-package/v1'; task: Record<string, unknown>; privacy: Record<string, unknown>; budget: Record<string, unknown>; provenance: Record<string, unknown>; [key: string]: unknown; }
 export interface AiContextPackage { id: string; context_id: string; status: 'preview' | 'ready' | 'superseded' | 'invalid'; context: AiContextBody; content_hash: string; estimated_tokens: number; redaction_count: number; truncation_count: number; created_at?: string; updated_at?: string; ready_at?: string | null; }
 export interface AiContextPackageList { items: AiContextPackage[]; total?: number; }
+export type AiGenerationStatus = 'queued' | 'running' | 'validating' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+export interface AiGenerationProfile { profile_id: string; provider: string; base_url: string; model: string; thinking_enabled: boolean; timeout_seconds: number; max_output_tokens: number; api_key: string; }
+export interface AiGenerationJob { id?: string; job_id?: string; context_id: string; task_id?: string; status: AiGenerationStatus; provider?: string; model?: string; error_code?: string | null; error_summary?: string | null; input_estimated_tokens?: number; provider_prompt_tokens?: number | null; provider_completion_tokens?: number | null; provider_total_tokens?: number | null; latency_ms?: number | null; draft_id?: string | null; }
+export interface AiSummaryDraft { id: string; context_id: string; task_id: string; schema_version: 'ai-summary-draft/v1'; status: 'draft'; content_json?: AiSummaryDraftContent; content?: AiSummaryDraftContent; provider?: string; model?: string; prompt_version?: string; context_hash?: string; output_redaction_count?: number; created_at?: string; updated_at?: string; }
+export interface AiSummaryDraftContent { schema_version: 'ai-summary-draft/v1'; sections: Record<'task_summary' | 'code_changes' | 'commands_and_results' | 'bug_solutions' | 'unresolved_issues' | 'todos' | 'daily_report' | 'knowledge_candidates', unknown>; }
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string, public readonly category: 'http' | 'transport' | 'protocol' = 'http') { super(message); this.name = 'ApiError'; }
@@ -80,5 +85,10 @@ export class ApiClient {
   async listAiContexts(taskId: string): Promise<AiContextPackage[]> { const response = await this.request<AiContextPackage[] | AiContextPackageList>(`/tasks/${taskId}/ai/context-packages`); return (Array.isArray(response) ? response : response.items).map(item => this.validContextPackage(item)); }
   async getAiContext(contextId: string): Promise<AiContextPackage> { return this.validContextPackage(await this.request(`/ai/context-packages/${contextId}`)); }
   async markAiContextReady(contextId: string): Promise<AiContextPackage> { return this.validContextPackage(await this.request(`/ai/context-packages/${contextId}/ready`, { method: 'POST' })); }
+  createAiSummaryGeneration(contextId: string, profile: AiGenerationProfile, idempotencyKey: string): Promise<AiGenerationJob> { return this.request(`/ai/context-packages/${contextId}/summary-generations`, { method: 'POST', body: JSON.stringify({ profile, idempotency_key: idempotencyKey }) }); }
+  getAiGenerationJob(jobId: string): Promise<AiGenerationJob> { return this.request(`/ai/generation-jobs/${jobId}`); }
+  cancelAiGenerationJob(jobId: string): Promise<AiGenerationJob> { return this.request(`/ai/generation-jobs/${jobId}/cancel`, { method: 'POST' }); }
+  listAiSummaryDrafts(taskId: string): Promise<AiSummaryDraft[]> { return this.request<AiSummaryDraft[] | { items: AiSummaryDraft[] }>(`/tasks/${taskId}/ai/summary-drafts`).then(value => Array.isArray(value) ? value : value.items); }
+  getAiSummaryDraft(draftId: string): Promise<AiSummaryDraft> { return this.request(`/ai/summary-drafts/${draftId}`); }
   testAiConnection(input: { provider: string; base_url: string; model: string; api_key: string; thinking_enabled: boolean; timeout_seconds: number; max_output_tokens: number }): Promise<AiConnectionResult> { return this.request('/ai/providers/test-connection', { method: 'POST', body: JSON.stringify(input) }); }
 }

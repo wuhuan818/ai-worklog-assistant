@@ -34,6 +34,12 @@ workspace identity and returns `{ project, created, matched_by }`.
 
 Errors include `task_not_found`, `task_not_completed`, `invalid_build_config`, `minimum_context_exceeds_budget`, `context_not_found`, `context_invalid`, `context_not_ready`, `privacy_validation_failed`, `budget_validation_failed`, and `idempotency_conflict`. Ready validates schema, completed task, no raw secret, budget, hash and legal status transition; it never invokes a model.
 
+## Stage 09: Summary generation
+
+`POST /ai/context-packages/{context_id}/summary-generations` creates or replays an idempotent job using a temporary selected-profile request and one Ready Context. `GET /ai/generation-jobs/{job_id}` returns safe job status; `POST /ai/generation-jobs/{job_id}/cancel` cancels an active job; `GET /tasks/{task_id}/ai/summary-drafts` lists persisted drafts; and `GET /ai/summary-drafts/{draft_id}` returns one validated read-only draft. Responses never return API keys, Authorization, prompts, raw provider responses, or reasoning.
+
+Generation rejects non-ready or privacy-invalid contexts and maps provider failures without provider fallback. A successful draft has schema `ai-summary-draft/v1`; invalid JSON, schema, evidence, paths, or oversize output never produce a normal draft.
+
 ## Stage 08: Context Package
 
 `POST /tasks/{task_id}/ai/context-packages` builds a sanitized Preview from a completed task. Its body contains `{config, idempotency_key}` where config is `context-build-config/v1`, has a 4,000–128,000 estimated-token budget (default 32,000), and inclusion toggles only; it contains no Provider or key. `GET /tasks/{task_id}/ai/context-packages` lists versions, `GET /ai/context-packages/{context_id}` returns a sanitized version, and `POST /ai/context-packages/{context_id}/ready` performs the Ready transition.

@@ -78,3 +78,9 @@ Run `scripts/verify-ai-context-package.ps1` twice. It uses an isolated local bac
 Run `scripts/verify-extension-host-ai-context-smoke-e2e.ps1` once for the bounded (90 second) Extension Host smoke. It uses an isolated test profile and synthetic secret only, with no Provider invocation. Failed diagnostics are retained; success removes temporary data. Neither script kills processes by image name or touches user VS Code processes.
 
 The Stage 7.1 direct Reload Window automation and independent startup orphan-cleanup integration evidence remain inherited gaps, not Stage 08 pass claims.
+
+## Stage 09 AI Summary Generation
+
+Run `scripts/verify-ai-summary-generation.ps1` twice. It uses only isolated data and a local Fake Provider, then writes `artifacts/test-results/stage09-ai-summary-generation.json`. The report is JSON without a BOM and records fake request counts separately from real-provider counts, which must remain zero. It must not contain synthetic secrets, Authorization values, raw prompts, raw provider responses, reasoning, or user absolute paths.
+
+Run `scripts/verify-extension-host-ai-summary-smoke-e2e.ps1` once for the bounded 120-second Extension Host smoke. It creates a completed task and Ready Context, confirms one generation request to the Fake Provider, validates all eight persisted draft sections and evidence references, reopens the read-only panel, and verifies controlled backend cleanup. A runner failure before the test suite loads is retained as diagnostic evidence, not reported as a passing E2E result.

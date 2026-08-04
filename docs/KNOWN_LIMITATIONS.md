@@ -36,3 +36,7 @@ In some VS Code shutdown paths, the extension-owned local backend could survive 
 Context Package v1 is deliberately a local preview/Ready snapshot only: it does not call an AI Provider, generate a summary, export Markdown, use RAG, or read source files beyond already persisted records. Token counts are estimates, not provider billing counts, and captured diffs may be unavailable or truncated by privacy/budget rules.
 
 The Stage 7.1 direct Reload Window automated regression and independent startup orphan-cleanup integration evidence are still not available. Stage 08 inherits and documents those gaps; it does not claim they are resolved or widen its smoke test into a lifecycle E2E.
+
+## Stage 09 scope boundary
+
+Stage 09 is summary-draft generation only. It deliberately does not offer draft editing, approval/rejection, regeneration UI, Markdown export, knowledge-base writes, embeddings, RAG, agents, web search, provider auto-selection, or cross-provider fallback. Automated verification uses a Fake Provider; a real Provider call remains a manual acceptance check and must use the user's locally stored key.

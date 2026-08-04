@@ -41,3 +41,16 @@ test('ApiClient lists only completed tasks for the context picker', async () => 
   assert.deepEqual(await client.listTasks('completed'), []);
   assert.equal(url, 'http://localhost/tasks?status=completed');
 });
+
+test('ApiClient uses the Stage 9 generation endpoints and does not put the provider key in a URL', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const client = new ApiClient('http://localhost', 'token', { fetch: async (input, init) => { calls.push({ url: String(input), init }); return new Response(JSON.stringify(calls.length === 1 ? { job_id: 'job', status: 'queued' } : calls.length === 2 ? { id: 'job', context_id: 'ctx', status: 'running' } : { items: [] }), { status: 200 }); } });
+  await client.createAiSummaryGeneration('ctx', { profile_id: 'profile', provider: 'deepseek', base_url: 'https://provider.example/v1', model: 'model', thinking_enabled: false, timeout_seconds: 30, max_output_tokens: 20, api_key: 'synthetic-secret' }, 'idempotency');
+  await client.getAiGenerationJob('job');
+  await client.listAiSummaryDrafts('task');
+  assert.equal(calls[0].url, 'http://localhost/ai/context-packages/ctx/summary-generations');
+  assert.equal(calls[1].url, 'http://localhost/ai/generation-jobs/job');
+  assert.equal(calls[2].url, 'http://localhost/tasks/task/ai/summary-drafts');
+  assert.equal(calls.some(call => call.url.includes('synthetic-secret')), false);
+  assert.match(String(calls[0].init?.body), /synthetic-secret/);
+});

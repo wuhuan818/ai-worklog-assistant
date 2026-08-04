@@ -29,3 +29,7 @@ The local server builds immutable `task-context-package/v1` snapshots only from 
 ## Stage 08 AI context boundary
 
 The local server builds immutable `task-context-package/v1` snapshots only from already persisted work records. Its context modules normalize paths, redact before budgeting, sort/deduplicate deterministically, calculate a local token estimate and store only sanitized JSON in SQLite. The extension is a local preview/Ready client: it never sends a package to a Provider or reads an API key. No Stage 08 flow scans a workspace, reopens a file, reads terminal history, environment variables, or SecretStorage.
+
+## Stage 09 AI summary boundary
+
+The generation service reads one persisted Ready Context Package by ID and submits only that sanitized snapshot through the selected Provider adapter. It validates `ai-summary-draft/v1`, evidence provenance, paths, output redaction and bounded fields locally before immutable draft persistence. Provider keys are temporary extension-to-server request material; jobs and drafts retain neither keys, Authorization, raw prompts/responses, nor reasoning. The extension owns confirmation, SecretStorage access, status polling, cancellation, and the read-only draft panel.

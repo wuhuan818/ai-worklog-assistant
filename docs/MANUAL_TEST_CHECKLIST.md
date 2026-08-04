@@ -140,3 +140,14 @@ the same data directory and confirm the conflict state and no captured event.
 3. Confirm no user absolute directory, Authorization value or raw synthetic token appears in the panel or Output log. Confirm sensitive/binary file content is absent if such a recorded event exists.
 4. Select **标记为 Ready**, close and reopen the preview, and confirm the status remains Ready. Rebuild once only if a new version is desired; Ready does not call any Provider.
 5. Close the host normally and confirm only its owned backend exits. Reload Window and startup orphan cleanup remain Stage 7.1 manual/evidence gaps, not claims completed by this checklist.
+
+## Stage 09 AI Summary Generation
+
+1. Start an Extension Development Host with F5. Create a small task with a normal note, a resolved Bug, and a small file/diagnostic or command record; then end the task.
+2. Preview the context, check privacy and provenance, and mark it Ready. Do not use a real secret in notes or files.
+3. Ensure one DeepSeek or Qwen profile has a key in SecretStorage. Run **AI Worklog: 生成 AI 总结草稿** and verify the confirmation shows task, context/hash summaries, schema, estimated tokens, provider/profile/model, thinking setting, output limit, and redaction/truncation counts. The warning must say the Ready Context will be sent to the selected provider.
+4. Cancel once. Confirm no job or draft is created and no provider request is made. Then repeat and explicitly confirm generation.
+5. When the job succeeds, open **AI Worklog: 查看 AI 总结草稿**. Confirm all eight sections are present: task summary, code changes, commands/results, Bug solutions, unresolved issues, todos, daily report, and knowledge candidates. Categories without evidence must be empty rather than invented.
+6. Check displayed evidence references point to the context provenance. Confirm the panel is read-only: there are no edit, approve, reject, regenerate, Markdown-export, or knowledge-write controls.
+7. Inspect the panel and AI Worklog output for the synthetic marker. Confirm no API key, Authorization header, absolute user path, provider reasoning, or raw provider response appears. Close and reopen the panel; the same persisted draft must still be available.
+8. Close the Extension Development Host normally and confirm only the backend owned by this host exits.

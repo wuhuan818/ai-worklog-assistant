@@ -40,3 +40,10 @@ The Stage 7 backend-survival blocker is resolved in Stage 7.1 through explicit b
 - Stable sorting, deduplication, canonical JSON and SHA-256 make repeated builds comparable. Volatile package/lifecycle fields are excluded from the content hash.
 - Token counts are local estimates, not provider billing tokens; no provider tokenizer or model mapping is introduced.
 - The Stage 7.1 Reload Window and startup-orphan-cleanup evidence gaps remain documented rather than being hidden by an unrelated Stage 08 E2E.
+
+## Stage 09 decision
+
+- Ready Context is the sole model input boundary; generation cannot rebuild or bypass it.
+- Provider-native structured response modes are compatibility aids, not trust boundaries: local schema/evidence/privacy validation is final.
+- A draft is immutable and read-only. Editing, regeneration, approval, rejection, Markdown, and knowledge writes remain Stage 10 work.
+- Retry is strictly bounded and never changes Provider, preventing accidental duplicate paid calls or routing surprises.
