@@ -30,13 +30,17 @@ def draft(evidence_ref: str = "event:note-1") -> dict:
 def scenario_content(evidence_ref: str = "event:note-1") -> str:
     value = json.dumps(draft(evidence_ref), ensure_ascii=False)
     if SCENARIO == "json_code_fence": return "```json\n" + value + "\n```"
+    if SCENARIO == "valid_json_in_code_fence": return "```json\n" + value + "\n```"
     if SCENARIO == "extra_text": return "Result: " + value
+    if SCENARIO == "valid_json_with_prefix": return "Here is the requested draft:\n" + value + "\nEnd of draft."
     if SCENARIO == "empty_content": return ""
     if SCENARIO == "invalid_json": return "{not json}"
     if SCENARIO == "missing_section":
         broken = draft(evidence_ref); del broken["sections"]["todos"]; return json.dumps(broken)
     if SCENARIO == "wrong_type":
         broken = draft(evidence_ref); broken["sections"]["code_changes"] = "not-an-array"; return json.dumps(broken)
+    if SCENARIO == "daily_report_wrong_type":
+        broken = draft(evidence_ref); broken["sections"]["daily_report"]["highlights"] = "not-an-array"; return json.dumps(broken)
     if SCENARIO == "invalid_evidence_ref":
         broken = draft(evidence_ref); broken["sections"]["task_summary"]["evidence_refs"] = ["invented:ref"]; return json.dumps(broken)
     if SCENARIO == "oversized_output": return json.dumps({"payload": "x" * 2_100_000})
@@ -72,7 +76,7 @@ class Handler(BaseHTTPRequestHandler):
         METRICS["raw_task_bypass_count"] += int("raw-task-table" in joined)
         if SCENARIO == "timeout": time.sleep(10)
         if SCENARIO == "connection_reset": self.connection.close(); return
-        status = {"401": 401, "403": 403, "404": 404, "429": 429, "500": 500}.get(SCENARIO)
+        status = {"401": 401, "403": 403, "404": 404, "429": 429, "500": 500, "json_schema_rejected": 400}.get(SCENARIO)
         if status: self._json(status, {"error": SCENARIO}); return
         evidence_ref = "event:note-1"
         start, end = joined.find("<context-package>"), joined.find("</context-package>")
@@ -82,7 +86,10 @@ class Handler(BaseHTTPRequestHandler):
                 refs = context.get("provenance", {}).get("included_source_refs", [])
                 if refs: evidence_ref = str(refs[0])
             except (TypeError, ValueError): pass
-        response = {"choices": [{"message": {"content": scenario_content(evidence_ref), "reasoning_content": "never persist this"}}]}
+        content = scenario_content(evidence_ref)
+        if SCENARIO == "openai_content_parts": content = [{"type": "text", "text": content}]
+        if SCENARIO == "empty_content_with_reasoning": content = ""
+        response = {"choices": [{"message": {"content": content, "reasoning_content": "never persist this"}}]}
         if SCENARIO != "usage_absent": response["usage"] = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
         self._json(200, response)
 

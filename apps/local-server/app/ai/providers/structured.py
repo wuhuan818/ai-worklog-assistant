@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
-from typing import Any, Dict, Iterable, List, Set, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 from typing_extensions import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, constr, field_validator
@@ -107,6 +107,14 @@ class SummaryDraft(StrictModel):
     sections: SummarySections
 
 
+class SummaryValidationError(ValueError):
+    """Safe, field-oriented validation diagnostics; never includes raw output."""
+    def __init__(self, stage: str, paths: Iterable[str] = ()):
+        self.stage = stage
+        self.paths = list(dict.fromkeys(paths))[:3]
+        super().__init__(stage)
+
+
 def summary_json_schema() -> Dict[str, Any]:
     return SummaryDraft.model_json_schema()
 
@@ -115,6 +123,40 @@ def _remove_code_fence(content: str) -> str:
     value = content.strip()
     match = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", value, flags=re.IGNORECASE | re.DOTALL)
     return match.group(1).strip() if match else value
+
+
+def _unique_json_object(content: str) -> str:
+    """Return exactly one balanced JSON object, safely ignoring quoted braces."""
+    value = _remove_code_fence(content)
+    candidates: List[str] = []
+    start = None; depth = 0; quoted = False; escaped = False
+    for index, char in enumerate(value):
+        if start is None:
+            if char == "{": start = index; depth = 1; quoted = False; escaped = False
+            continue
+        if quoted:
+            if escaped: escaped = False
+            elif char == "\\": escaped = True
+            elif char == '"': quoted = False
+            continue
+        if char == '"': quoted = True
+        elif char == "{": depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                candidates.append(value[start:index + 1]); start = None
+    if start is not None or len(candidates) != 1:
+        raise SummaryValidationError("json_extraction", ["$" if not candidates else "multiple_json_objects"])
+    return candidates[0]
+
+
+def _validation_paths(error: ValidationError) -> List[str]:
+    paths = []
+    for item in error.errors():
+        location = item.get("loc", ())
+        path = ".".join(str(part) for part in location)
+        if path: paths.append(path)
+    return paths
 
 
 def _redact(value: Any) -> Tuple[Any, int]:
@@ -131,23 +173,30 @@ def _redact(value: Any) -> Tuple[Any, int]:
 
 
 def parse_and_validate_summary(content: str, included_source_refs: Iterable[str]) -> Tuple[SummaryDraft, int]:
-    """Parse, redact and validate output; reject a single unknown evidence ref."""
+    """Parse one JSON object, validate facts, redact output, then validate again."""
     try:
-        decoded = json.loads(_remove_code_fence(content))
+        decoded = json.loads(_unique_json_object(content))
     except (TypeError, ValueError) as error:
-        raise ValueError("invalid_json") from error
-    redacted, redaction_count = _redact(decoded)
+        if isinstance(error, SummaryValidationError): raise
+        raise SummaryValidationError("json_parse", ["$"]) from error
     try:
-        draft = SummaryDraft.model_validate(redacted)
+        draft = SummaryDraft.model_validate(decoded)
     except ValidationError as error:
-        raise ValueError("schema_invalid") from error
+        raise SummaryValidationError("schema", _validation_paths(error)) from error
     allowed = set(included_source_refs)
     unknown = {
         ref for ref in _walk_evidence_refs(draft.model_dump()) if ref not in allowed
     }
     if unknown:
-        raise ValueError("invalid_evidence_refs")
-    return draft, redaction_count
+        paths = []
+        for path, ref in _walk_evidence_ref_paths(draft.model_dump()):
+            if ref in unknown: paths.append(path)
+        raise SummaryValidationError("evidence", paths or ["evidence_refs"])
+    redacted, redaction_count = _redact(draft.model_dump())
+    try:
+        return SummaryDraft.model_validate(redacted), redaction_count
+    except ValidationError as error:
+        raise SummaryValidationError("post_redaction_schema", _validation_paths(error)) from error
 
 
 def _walk_evidence_refs(value: Any) -> Iterable[str]:
@@ -160,3 +209,14 @@ def _walk_evidence_refs(value: Any) -> Iterable[str]:
     elif isinstance(value, list):
         for child in value:
             yield from _walk_evidence_refs(child)
+
+
+def _walk_evidence_ref_paths(value: Any, prefix: str = "") -> Iterable[Tuple[str, str]]:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if key == "evidence_refs":
+                for index, ref in enumerate(child): yield f"{path}.{index}", ref
+            else: yield from _walk_evidence_ref_paths(child, path)
+    elif isinstance(value, list):
+        for index, child in enumerate(value): yield from _walk_evidence_ref_paths(child, f"{prefix}.{index}")

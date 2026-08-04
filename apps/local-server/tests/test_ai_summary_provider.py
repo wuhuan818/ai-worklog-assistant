@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app.ai.providers.client import ProviderRequestError, build_generation_payload, generate_structured_summary, generate_validated_summary
 from app.ai.providers.models import ProviderProfile, StructuredSummaryRequest
 from app.ai.providers.prompt import SYSTEM_CONTRACT, build_summary_messages
-from app.ai.providers.structured import SUMMARY_SCHEMA_VERSION, parse_and_validate_summary
+from app.ai.providers.structured import SUMMARY_SCHEMA_VERSION, SummaryValidationError, parse_and_validate_summary
 
 
 SECRET = "synthetic-secret-never-log"
@@ -67,11 +67,19 @@ def test_local_validation_evidence_paths_fences_and_redaction():
     redacted, count = parse_and_validate_summary(leaky, ["note:1"])
     assert count >= 1 and "abcdefghijklmnop" not in redacted.sections.task_summary.summary
     bad_ref = valid_content(task_summary={"summary": "x", "outcomes": [], "evidence_refs": ["made-up"]})
-    with pytest.raises(ValueError, match="invalid_evidence_refs"):
+    with pytest.raises(SummaryValidationError, match="evidence") as error:
         parse_and_validate_summary(bad_ref, ["note:1"])
+    assert error.value.paths == ["sections.task_summary.evidence_refs.0"]
     bad_path = valid_content(code_changes=[{"path": "C:\\Users\\secret.py", "summary": "x", "impact": "x", "evidence_refs": []}])
-    with pytest.raises(ValueError, match="schema_invalid"):
+    with pytest.raises(SummaryValidationError, match="schema"):
         parse_and_validate_summary(bad_path, ["note:1"])
+
+
+def test_parser_extracts_one_json_object_and_rejects_ambiguous_objects():
+    draft, _ = parse_and_validate_summary("Here is the draft:\n" + valid_content() + "\nThanks.", ["note:1"])
+    assert draft.schema_version == SUMMARY_SCHEMA_VERSION
+    with pytest.raises(SummaryValidationError, match="json_extraction"):
+        parse_and_validate_summary(valid_content() + "\n" + valid_content(), ["note:1"])
 
 
 def test_async_generation_uses_final_content_and_ignores_reasoning(monkeypatch):
@@ -88,6 +96,18 @@ def test_async_generation_uses_final_content_and_ignores_reasoning(monkeypatch):
     assert result.content == valid_content() and result.total_tokens == 9
     assert captured["headers"]["Authorization"] == "Bearer " + SECRET
     assert SECRET not in str(captured["payload"]) and "private chain" not in result.model_dump_json()
+
+
+def test_async_generation_accepts_content_parts_and_rejects_empty_reasoning_only(monkeypatch):
+    class Client:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return None
+        async def post(self, *args, **kwargs):
+            return httpx.Response(200, json={"choices": [{"message": {"content": [{"type": "text", "text": valid_content()}], "reasoning_content": "hidden"}}]})
+    import app.ai.providers.client as client
+    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **kwargs: Client())
+    result = asyncio.run(generate_structured_summary(StructuredSummaryRequest(profile=profile(), context_package=context())))
+    assert result.content == valid_content()
 
 
 def test_validated_summary_convenience_api_returns_persistable_content(monkeypatch):

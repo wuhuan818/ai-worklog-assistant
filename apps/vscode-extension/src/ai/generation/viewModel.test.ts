@@ -18,6 +18,7 @@ test('sidebar generation fingerprint changes only for meaningful status data', (
   const job = { id: 'j', context_id: 'c', status: 'running' as const, provider: 'qwen', model: 'm' };
   assert.equal(generationFingerprint(job), generationFingerprint({ ...job }));
   assert.notEqual(generationFingerprint(job), generationFingerprint({ ...job, status: 'validating' }));
+  assert.notEqual(generationFingerprint(job), generationFingerprint({ ...job, error_summary: 'safe detail', attempt_count: 2 }));
   assert.equal(generationSidebarText(undefined), 'AI Summary: not generated');
 });
 

@@ -121,4 +121,5 @@ async def run_job(db_factory: Callable[[], sqlite3.Connection], job_id: str, pro
         current = repository.get_job(c, job_id)
         if current and current["status"] != "cancelled":
             code = getattr(error, "code", "provider_invalid_response")
-            c.execute("UPDATE ai_generation_jobs SET status='failed', error_code=?, error_summary=?, finished_at=? WHERE id=? AND status IN ('queued','running','validating')", (code, safe_error(getattr(error, "message", error)), timestamp(), job_id))
+            summary = getattr(error, "summary", None) or getattr(error, "message", error)
+            c.execute("UPDATE ai_generation_jobs SET status='failed', error_code=?, error_summary=?, finished_at=? WHERE id=? AND status IN ('queued','running','validating')", (code, safe_error(summary), timestamp(), job_id))

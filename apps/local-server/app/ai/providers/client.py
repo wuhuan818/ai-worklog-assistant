@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Dict, Optional
 
 import httpx
 
 from .models import ProviderProfile, StructuredSummaryRequest, StructuredSummaryResult
-from .prompt import build_summary_messages
-from .structured import SummaryDraft, parse_and_validate_summary, summary_json_schema
+from app.ai.context.redaction import redact_text
+from .prompt import build_repair_messages, build_summary_messages
+from .structured import SummaryValidationError, parse_and_validate_summary, summary_json_schema
 
 
 class ProviderRequestError(Exception):
-    def __init__(self, code: str, status_code: Optional[int] = None):
-        self.code, self.status_code = code, status_code
+    def __init__(self, code: str, status_code: Optional[int] = None, summary: Optional[str] = None):
+        self.code, self.status_code, self.summary = code, status_code, summary or code
         super().__init__(code)
 
 
@@ -22,7 +24,8 @@ def _error_code(status: int) -> str:
 
 def build_generation_payload(request: StructuredSummaryRequest) -> Dict[str, Any]:
     profile = request.profile
-    payload: Dict[str, Any] = {"model": profile.model, "messages": build_summary_messages(request.context_package), "stream": False, "max_tokens": profile.max_output_tokens}
+    messages = build_summary_messages(request.context_package) if not request.repair_instruction else build_repair_messages(request.context_package, *json.loads(request.repair_instruction))
+    payload: Dict[str, Any] = {"model": profile.model, "messages": messages, "stream": False, "max_tokens": profile.max_output_tokens}
     if profile.structured_output_mode == "json_schema":
         payload["response_format"] = {"type": "json_schema", "json_schema": {"name": "ai_summary_draft", "strict": True, "schema": summary_json_schema()}}
     elif profile.structured_output_mode == "json_object":
@@ -34,6 +37,17 @@ def build_generation_payload(request: StructuredSummaryRequest) -> Dict[str, Any
     elif profile.provider == "qwen":
         payload["enable_thinking"] = profile.thinking_enabled
     return payload
+
+
+def _final_content(value: Any) -> str:
+    if isinstance(value, str): return value
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, str): parts.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("text"), str): parts.append(item["text"])
+        return "".join(parts)
+    return ""
 
 
 async def generate_structured_summary(request: StructuredSummaryRequest) -> StructuredSummaryResult:
@@ -53,11 +67,11 @@ async def generate_structured_summary(request: StructuredSummaryRequest) -> Stru
     try:
         body = response.json()
         message = body["choices"][0]["message"]
-        content = message["content"]
+        content = _final_content(message.get("content"))
     except (TypeError, KeyError, IndexError, ValueError) as error:
         raise ProviderRequestError("provider_invalid_response", response.status_code) from error
-    if not isinstance(content, str) or not content.strip():
-        raise ProviderRequestError("provider_invalid_response", response.status_code)
+    if not content.strip():
+        raise ProviderRequestError("provider_empty_content", response.status_code, "Provider returned no final content")
     usage = body.get("usage") if isinstance(body, dict) else {}
     usage = usage if isinstance(usage, dict) else {}
     return StructuredSummaryResult(content=content, provider_status=response.status_code, prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"))
@@ -103,11 +117,14 @@ async def generate_validated_summary(profile: Any, api_key: str, context: Dict[s
             last_error = error
             if error.code not in transient or attempt == 3:
                 raise
-        except ValueError as error:
-            # A single validation repair retry is allowed; the system contract
-            # already requires JSON only, so no raw invalid response is retained.
+        except SummaryValidationError as error:
+            # One targeted repair request stays with the selected Provider.  The
+            # previous answer is redacted and never persisted or logged.
             last_error = error
             if attempt >= 2:
-                raise ProviderRequestError("structured_output_invalid") from error
+                detail = ", ".join(error.paths) or error.stage
+                raise ProviderRequestError("structured_output_invalid", summary=f"AI 返回内容未通过结构化校验：{detail}。已尝试 {attempt} 次，未创建草稿。") from error
+            safe_output, _ = redact_text(result.content)
+            request = request.model_copy(update={"repair_instruction": json.dumps([error.stage, error.paths, list(refs), safe_output], ensure_ascii=False)})
         await asyncio.sleep(1 if attempt == 1 else 2)
     raise last_error or ProviderRequestError("provider_invalid_response")

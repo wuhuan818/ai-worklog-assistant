@@ -32,6 +32,7 @@ class StructuredSummaryRequest(BaseModel):
     context_package: Dict[str, Any]
     prompt_version: str = "ai-summary-prompt/v1"
     output_schema_version: str = "ai-summary-draft/v1"
+    repair_instruction: Optional[str] = None
 
 
 class StructuredSummaryResult(BaseModel):
