@@ -69,7 +69,8 @@ async def generate_structured_summary(request: StructuredSummaryRequest) -> Stru
         raise ProviderRequestError("output_too_large", response.status_code)
     try:
         body = response.json()
-        message = body["choices"][0]["message"]
+        choice = body["choices"][0]
+        message = choice["message"]
         content, content_shape = _final_content(message.get("content"))
     except (TypeError, KeyError, IndexError, ValueError) as error:
         raise ProviderRequestError("provider_invalid_response", response.status_code) from error
@@ -77,7 +78,8 @@ async def generate_structured_summary(request: StructuredSummaryRequest) -> Stru
         raise ProviderRequestError("provider_empty_content", response.status_code, "Provider returned no final content")
     usage = body.get("usage") if isinstance(body, dict) else {}
     usage = usage if isinstance(usage, dict) else {}
-    return StructuredSummaryResult(content=content, content_shape=content_shape, content_characters=len(content), provider_status=response.status_code, prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"))
+    finish_reason = choice.get("finish_reason") if isinstance(choice.get("finish_reason"), str) else None
+    return StructuredSummaryResult(content=content, content_shape=content_shape, content_characters=len(content), finish_reason=finish_reason, provider_status=response.status_code, prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"))
 
 
 async def generate_validated_summary(profile: Any, api_key: str, context: Dict[str, Any]):
@@ -127,7 +129,8 @@ async def generate_validated_summary(profile: Any, api_key: str, context: Dict[s
             if attempt >= 2:
                 detail = ", ".join(error.paths) or "$"
                 shape = result.content_shape
-                raise ProviderRequestError("structured_output_invalid", summary=f"AI 返回内容未通过结构化校验：{error.stage} at {detail}（final_content={shape}, chars={result.content_characters}）。已尝试 {attempt} 次，未创建草稿。") from error
+                finish = result.finish_reason or "unspecified"
+                raise ProviderRequestError("structured_output_invalid", summary=f"AI 返回内容未通过结构化校验：{error.stage} at {detail}（final_content={shape}, chars={result.content_characters}, finish_reason={finish}）。已尝试 {attempt} 次，未创建草稿。") from error
             safe_output, _ = redact_text(result.content)
             request = request.model_copy(update={"repair_instruction": json.dumps([error.stage, error.paths, list(refs), safe_output], ensure_ascii=False)})
         await asyncio.sleep(1 if attempt == 1 else 2)

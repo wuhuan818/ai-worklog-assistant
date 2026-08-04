@@ -41,6 +41,7 @@ class StructuredSummaryResult(BaseModel):
     # never retain Provider text or reasoning.
     content_shape: str = Field(default="string", max_length=100)
     content_characters: int = Field(default=0, ge=0)
+    finish_reason: Optional[str] = Field(default=None, max_length=100)
     provider_status: int = 200
     prompt_tokens: Optional[int] = Field(default=None, ge=0)
     completion_tokens: Optional[int] = Field(default=None, ge=0)

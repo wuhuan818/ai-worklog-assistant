@@ -103,11 +103,11 @@ def test_async_generation_uses_final_content_and_ignores_reasoning(monkeypatch):
         async def __aexit__(self, *args): return None
         async def post(self, url, json, headers):
             captured.update(url=url, payload=json, headers=headers)
-            return httpx.Response(200, json={"choices": [{"message": {"content": valid_content(), "reasoning_content": "private chain"}}], "usage": {"prompt_tokens": 4, "completion_tokens": 5, "total_tokens": 9}})
+            return httpx.Response(200, json={"choices": [{"message": {"content": valid_content(), "reasoning_content": "private chain"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 4, "completion_tokens": 5, "total_tokens": 9}})
     import app.ai.providers.client as client
     monkeypatch.setattr(client.httpx, "AsyncClient", lambda **kwargs: Client())
     result = asyncio.run(generate_structured_summary(StructuredSummaryRequest(profile=profile(), context_package=context())))
-    assert result.content == valid_content() and result.total_tokens == 9
+    assert result.content == valid_content() and result.total_tokens == 9 and result.finish_reason == "stop"
     assert captured["headers"]["Authorization"] == "Bearer " + SECRET
     assert SECRET not in str(captured["payload"]) and "private chain" not in result.model_dump_json()
 
