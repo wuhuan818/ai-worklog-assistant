@@ -42,12 +42,14 @@ try {
   $idempotencyKey = [Guid]::NewGuid().ToString()
   $buildA = Invoke-Stage08Json POST "/tasks/$taskId/ai/context-packages" @{ config = $config; idempotency_key = $idempotencyKey } $headers
   $buildReplay = Invoke-Stage08Json POST "/tasks/$taskId/ai/context-packages" @{ config = $config; idempotency_key = $idempotencyKey } $headers
-  $package = if ($null -ne (Get-Field $buildA 'context_json')) { $buildA.context_json } else { $buildA }
+  $package = Get-Field $buildA 'context'
   $rawPackage = $buildA | ConvertTo-Json -Depth 100 -Compress
+  Assert-Stage08 'structured-context' ($null -ne $package -and $package -is [psobject])
   Assert-Stage08 'schema-v1' ((Get-Field $package 'schema_version') -eq 'task-context-package/v1')
   Assert-Stage08 'completed-task' ((Get-Field (Get-Field $package 'task') 'status') -eq 'completed')
-  $contextId = Get-Field $buildA 'context_id'
-  Assert-Stage08 'idempotent-build' ($contextId -eq (Get-Field $buildReplay 'context_id'))
+  $contextId = Get-Field $buildA 'id'
+  Assert-Stage08 'idempotent-build' ($contextId -eq (Get-Field $buildReplay 'id'))
+  Assert-Stage08 'estimated-tokens-number' ((Get-Field $buildA 'estimated_tokens') -is [int])
   Assert-Stage08 'secret-redacted' (-not $rawPackage.Contains($syntheticSecret))
   Assert-Stage08 'absolute-path-removed' (-not $rawPackage.Contains('C:\Users\synthetic-user'))
   $privacy = Get-Field $package 'privacy'; $budget = Get-Field $package 'budget'; $provenance = Get-Field $package 'provenance'

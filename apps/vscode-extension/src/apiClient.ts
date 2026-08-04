@@ -14,7 +14,8 @@ export interface BugListResponse { items: BugView[]; total: number; limit: numbe
 export interface HttpTransport { fetch(input: string, init?: RequestInit): Promise<Response>; }
 export interface AiConnectionResult { ok: boolean; provider: string; model: string; latency_ms: number; status: string; capabilities: Record<string, boolean>; }
 export interface AiContextBuildConfig { schema_version: 'context-build-config/v1'; estimated_input_token_budget: number; include_manual_notes: boolean; include_bug_details: boolean; include_file_changes: boolean; include_diff_snippets: boolean; include_diagnostics: boolean; include_commands_and_tasks: boolean; include_debug_events: boolean; include_event_summary: boolean; }
-export interface AiContextPackage { id: string; context_id?: string; schema_version: 'task-context-package/v1'; project_id: string; task_id: string; status: 'preview' | 'ready' | 'superseded' | 'invalid'; context: Record<string, unknown>; context_json?: Record<string, unknown>; content_hash: string; estimated_tokens?: number; created_at?: string; updated_at?: string; ready_at?: string | null; }
+export interface AiContextBody { schema_version: 'task-context-package/v1'; task: Record<string, unknown>; privacy: Record<string, unknown>; budget: Record<string, unknown>; provenance: Record<string, unknown>; [key: string]: unknown; }
+export interface AiContextPackage { id: string; context_id: string; status: 'preview' | 'ready' | 'superseded' | 'invalid'; context: AiContextBody; content_hash: string; estimated_tokens: number; redaction_count: number; truncation_count: number; created_at?: string; updated_at?: string; ready_at?: string | null; }
 export interface AiContextPackageList { items: AiContextPackage[]; total?: number; }
 
 export class ApiError extends Error {
@@ -69,9 +70,15 @@ export class ApiClient {
   listBugResolutions(taskId: string, bugId: string): Promise<BugResolution[]> { return this.request(`/tasks/${taskId}/bugs/${bugId}/resolutions`); }
   listBugEvents(taskId: string, bugId: string, limit = 100, offset = 0, eventType?: string): Promise<{ items: WorklogEvent[]; total: number; limit: number; offset: number }> { return this.listEvents(taskId, limit, { offset, eventType, bugId }); }
   generateSummary(taskId: string): Promise<Record<string, unknown>> { return this.request(`/tasks/${taskId}/summaries/generate`, { method: 'POST' }); }
-  buildAiContext(taskId: string, config: AiContextBuildConfig, idempotencyKey: string): Promise<AiContextPackage> { return this.request(`/tasks/${taskId}/ai/context-packages`, { method: 'POST', body: JSON.stringify({ config, idempotency_key: idempotencyKey }) }); }
-  async listAiContexts(taskId: string): Promise<AiContextPackage[]> { const response = await this.request<AiContextPackage[] | AiContextPackageList>(`/tasks/${taskId}/ai/context-packages`); return Array.isArray(response) ? response : response.items; }
-  getAiContext(contextId: string): Promise<AiContextPackage> { return this.request(`/ai/context-packages/${contextId}`); }
-  markAiContextReady(contextId: string): Promise<AiContextPackage> { return this.request(`/ai/context-packages/${contextId}/ready`, { method: 'POST' }); }
+  private validContextPackage(value: unknown): AiContextPackage {
+    const item = value as Partial<AiContextPackage>;
+    const context = item?.context;
+    if (!item || typeof item.id !== 'string' || typeof item.context_id !== 'string' || typeof item.status !== 'string' || typeof item.content_hash !== 'string' || typeof item.estimated_tokens !== 'number' || !Number.isFinite(item.estimated_tokens) || !context || typeof context !== 'object' || context.schema_version !== 'task-context-package/v1' || !context.task || !context.privacy || !context.budget || !context.provenance) throw new ApiError(0, 'AI Context 响应格式无效', 'protocol');
+    return item as AiContextPackage;
+  }
+  async buildAiContext(taskId: string, config: AiContextBuildConfig, idempotencyKey: string): Promise<AiContextPackage> { return this.validContextPackage(await this.request(`/tasks/${taskId}/ai/context-packages`, { method: 'POST', body: JSON.stringify({ config, idempotency_key: idempotencyKey }) })); }
+  async listAiContexts(taskId: string): Promise<AiContextPackage[]> { const response = await this.request<AiContextPackage[] | AiContextPackageList>(`/tasks/${taskId}/ai/context-packages`); return (Array.isArray(response) ? response : response.items).map(item => this.validContextPackage(item)); }
+  async getAiContext(contextId: string): Promise<AiContextPackage> { return this.validContextPackage(await this.request(`/ai/context-packages/${contextId}`)); }
+  async markAiContextReady(contextId: string): Promise<AiContextPackage> { return this.validContextPackage(await this.request(`/ai/context-packages/${contextId}/ready`, { method: 'POST' })); }
   testAiConnection(input: { provider: string; base_url: string; model: string; api_key: string; thinking_enabled: boolean; timeout_seconds: number; max_output_tokens: number }): Promise<AiConnectionResult> { return this.request('/ai/providers/test-connection', { method: 'POST', body: JSON.stringify(input) }); }
 }

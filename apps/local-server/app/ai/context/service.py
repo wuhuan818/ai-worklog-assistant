@@ -41,7 +41,7 @@ def build_package(c: sqlite3.Connection, task_id: str, config: ContextBuildConfi
     package["content_hash"] = content_hash(package); package["provenance"]["content_hash"] = package["content_hash"]
     c.execute("INSERT INTO ai_context_packages(id,schema_version,project_id,task_id,status,build_config_json,context_json,content_hash,estimated_tokens,redaction_count,truncation_count,created_at,updated_at,idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       (package["context_id"], package["schema_version"], package["project"]["project_id"], task_id, "preview", json.dumps(config.model_dump() if hasattr(config, "model_dump") else config.dict(), sort_keys=True, separators=(",",":")), json.dumps(package, ensure_ascii=False, sort_keys=True, separators=(",",":")), package["content_hash"], budget["estimated_tokens_after"], package["privacy"].get("redaction_count",0), 0, timestamp, timestamp, idempotency_key))
-    return package
+    return repository.get(c, package["context_id"])
 
 def ready_package(c: sqlite3.Connection, context_id: str, timestamp: str) -> dict:
     repository.ensure_schema(c)
@@ -49,13 +49,18 @@ def ready_package(c: sqlite3.Connection, context_id: str, timestamp: str) -> dic
     if not row: raise ContextError("context_not_found", "Context package was not found")
     if row["status"] == "ready": return repository.row_output(row)
     if row["status"] != "preview": raise ContextError("context_invalid", "Context package cannot be marked ready")
-    package = repository.row_output(row); _task(c, row["task_id"])
-    if package.get("schema_version") != "task-context-package/v1" or not package.get("content_hash"):
+    response = repository.row_output(row); package = response.get("context")
+    _task(c, row["task_id"])
+    if not isinstance(package, dict) or not package or package.get("schema_version") != "task-context-package/v1" or not response.get("content_hash"):
         raise ContextError("context_invalid", "Context package schema or hash is invalid")
+    required = ("task", "privacy", "budget", "provenance")
+    if any(not isinstance(package.get(key), dict) or not package.get(key) for key in required):
+        raise ContextError("context_invalid", "Context package is incomplete")
     if package.get("privacy",{}).get("raw_secret_retained") is not False:
         raise ContextError("privacy_validation_failed", "Context package failed privacy validation")
-    budget=package.get("budget", {})
-    if budget.get("estimated_tokens_after", 0) > budget.get("estimated_token_budget", 0):
+    budget=package["budget"]
+    tokens, limit = budget.get("estimated_tokens_after"), budget.get("estimated_token_budget")
+    if isinstance(tokens, bool) or isinstance(limit, bool) or not isinstance(tokens, int) or not isinstance(limit, int) or tokens < 0 or limit < 1 or tokens > limit:
         raise ContextError("budget_validation_failed", "Context package exceeds its token budget")
     c.execute("UPDATE ai_context_packages SET status='superseded',superseded_at=?,updated_at=? WHERE task_id=? AND status='ready'", (timestamp,timestamp,row["task_id"]))
     c.execute("UPDATE ai_context_packages SET status='ready',ready_at=?,updated_at=? WHERE id=?", (timestamp,timestamp,context_id))

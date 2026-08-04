@@ -23,10 +23,20 @@ def ensure_schema(c: sqlite3.Connection) -> None:
     """)
 
 def row_output(row: sqlite3.Row) -> dict:
-    package = json.loads(row["context_json"])
-    package.update({"context_id": row["id"], "status": row["status"], "created_at": row["created_at"],
-                    "updated_at": row["updated_at"], "ready_at": row["ready_at"], "content_hash": row["content_hash"]})
-    return package
+    """Return the stable HTTP contract; SQLite JSON remains an internal detail."""
+    try:
+        context = json.loads(row["context_json"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid persisted context_json") from error
+    if not isinstance(context, dict):
+        raise ValueError("persisted context_json must be an object")
+    return {
+        "id": row["id"], "context_id": row["id"], "status": row["status"],
+        "content_hash": row["content_hash"], "estimated_tokens": int(row["estimated_tokens"]),
+        "redaction_count": int(row["redaction_count"]), "truncation_count": int(row["truncation_count"]),
+        "created_at": row["created_at"], "updated_at": row["updated_at"], "ready_at": row["ready_at"],
+        "context": context,
+    }
 
 def get(c: sqlite3.Connection, context_id: str) -> Optional[dict]:
     row = c.execute("SELECT * FROM ai_context_packages WHERE id=?", (context_id,)).fetchone()
