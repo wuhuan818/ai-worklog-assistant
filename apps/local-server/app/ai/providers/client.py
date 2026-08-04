@@ -9,7 +9,7 @@ import httpx
 from .models import ProviderProfile, StructuredSummaryRequest, StructuredSummaryResult
 from app.ai.context.redaction import redact_text
 from .prompt import build_repair_messages, build_summary_messages
-from .structured import SummaryValidationError, parse_and_validate_summary, summary_json_schema
+from .structured import SummaryValidationError, normalize_evidence_refs, parse_and_validate_summary, summary_json_schema
 
 
 class ProviderRequestError(Exception):
@@ -42,11 +42,11 @@ def build_generation_payload(request: StructuredSummaryRequest) -> Dict[str, Any
 def _final_content(value: Any) -> str:
     if isinstance(value, str): return value
     if isinstance(value, list):
-        parts = []
-        for item in value:
-            if isinstance(item, str): parts.append(item)
-            elif isinstance(item, dict) and isinstance(item.get("text"), str): parts.append(item["text"])
-        return "".join(parts)
+        return "".join(part for part in (_final_content(item) for item in value) if part)
+    if isinstance(value, dict):
+        text = value.get("text")
+        if isinstance(text, str): return text
+        if isinstance(text, dict) and isinstance(text.get("value"), str): return text["value"]
     return ""
 
 
@@ -94,7 +94,7 @@ async def generate_validated_summary(profile: Any, api_key: str, context: Dict[s
         profile_data = dict(profile)
     profile_data["api_key"] = api_key
     request = StructuredSummaryRequest(profile=ProviderProfile(**profile_data), context_package=context)
-    refs = context.get("provenance", {}).get("included_source_refs", [])
+    refs = normalize_evidence_refs(context.get("provenance", {}).get("included_source_refs", []))
     # At most three paid calls: one repair retry for malformed output, and
     # bounded transport retries only for transient provider failures.  Keys stay
     # inside ``request`` for this coroutine's lifetime.

@@ -115,6 +115,27 @@ class SummaryValidationError(ValueError):
         super().__init__(stage)
 
 
+def normalize_evidence_refs(values: Iterable[Any]) -> List[str]:
+    """Turn Context provenance references into the stable strings used by drafts.
+
+    Context packages store event provenance as ``{type, id}`` objects, while the
+    public draft schema deliberately exposes evidence references as strings.  Do
+    the conversion in one place so prompts, repair requests and local validation
+    all use the exact same allow-list.
+    """
+    normalized: List[str] = []
+    for value in values:
+        if isinstance(value, str):
+            candidate = value
+        elif isinstance(value, dict) and isinstance(value.get("type"), str) and isinstance(value.get("id"), str):
+            candidate = f"{value['type']}:{value['id']}"
+        else:
+            continue
+        if candidate and candidate not in normalized:
+            normalized.append(candidate)
+    return normalized
+
+
 def summary_json_schema() -> Dict[str, Any]:
     return SummaryDraft.model_json_schema()
 
@@ -183,7 +204,7 @@ def parse_and_validate_summary(content: str, included_source_refs: Iterable[str]
         draft = SummaryDraft.model_validate(decoded)
     except ValidationError as error:
         raise SummaryValidationError("schema", _validation_paths(error)) from error
-    allowed = set(included_source_refs)
+    allowed = set(normalize_evidence_refs(included_source_refs))
     unknown = {
         ref for ref in _walk_evidence_refs(draft.model_dump()) if ref not in allowed
     }

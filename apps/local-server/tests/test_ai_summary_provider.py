@@ -82,6 +82,18 @@ def test_parser_extracts_one_json_object_and_rejects_ambiguous_objects():
         parse_and_validate_summary(valid_content() + "\n" + valid_content(), ["note:1"])
 
 
+def test_object_provenance_refs_are_normalized_for_prompt_repair_and_evidence():
+    object_refs = [{"type": "manual_note", "id": "evt-1"}, "note:1"]
+    object_context = {**context(), "provenance": {"included_source_refs": object_refs}}
+    messages = build_summary_messages(object_context)
+    assert "manual_note:evt-1" in messages[1]["content"]
+    accepted = valid_content(task_summary={"summary": "x", "outcomes": [], "evidence_refs": ["manual_note:evt-1"]})
+    draft, _ = parse_and_validate_summary(accepted, object_refs)
+    assert draft.sections.task_summary.evidence_refs == ["manual_note:evt-1"]
+    request = StructuredSummaryRequest(profile=profile(), context_package=object_context, repair_instruction=json.dumps(["schema", ["sections.task_summary"], object_refs, "{}"] ))
+    assert "manual_note:evt-1" in str(build_generation_payload(request))
+
+
 def test_async_generation_uses_final_content_and_ignores_reasoning(monkeypatch):
     captured = {}
     class Client:
