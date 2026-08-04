@@ -36,7 +36,19 @@ def create_task(client, headers):
 def test_health_check(client):
     response = client.get('/health')
     assert response.status_code == 200
-    assert response.json() == {'status': 'ok', 'service': 'local-server'}
+    health = response.json()
+    assert health['status'] == 'ok' and health['service'] == 'local-server'
+    assert health['api_version'] == 'stage-09'
+    assert 'ai-summary-generation-v1' in health['features']
+
+
+def test_openapi_exposes_stage09_summary_generation_routes(client):
+    paths = client.get('/openapi.json').json()['paths']
+    assert '/ai/context-packages/{context_id}/summary-generations' in paths
+    assert '/ai/generation-jobs/{job_id}' in paths
+    assert '/ai/generation-jobs/{job_id}/cancel' in paths
+    assert '/tasks/{task_id}/ai/summary-drafts' in paths
+    assert '/ai/summary-drafts/{draft_id}' in paths
 
 
 def test_session_token_is_required(client):

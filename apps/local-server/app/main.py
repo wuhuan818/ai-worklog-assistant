@@ -18,7 +18,10 @@ HOST = os.getenv('WORKLOG_HOST', '127.0.0.1')
 PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
-app = FastAPI(title='AI Worklog Assistant', version='0.1.0')
+API_VERSION = 'stage-09'
+FEATURES = ['ai-summary-generation-v1']
+BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
+app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
 from app.ai.router import router as ai_router
 app.include_router(ai_router)
 from app.ai.generation.router import router as generation_router
@@ -195,7 +198,9 @@ class SummaryIn(BaseModel): content: Dict[str,Any]
 class SessionIn(BaseModel): token: str; model: Optional[str]=None; base_url: Optional[str]=None; api_key: Optional[str]=None
 
 @app.get('/health')
-def health(): return {'status':'ok','service':'local-server'}
+def health():
+    return {'status':'ok','service':'local-server','api_version':API_VERSION,
+            'features':FEATURES,'build_commit':BUILD_COMMIT}
 @app.post('/session/initialize')
 def initialize(x: SessionIn):
     global TOKEN; TOKEN=x.token; return {'ok':True}

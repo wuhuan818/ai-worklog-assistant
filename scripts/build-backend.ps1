@@ -6,6 +6,15 @@ $lockDirectory = Join-Path $root 'artifacts\build'
 $lockPath = Join-Path $lockDirectory 'backend-build.lock.json'
 New-Item -ItemType Directory -Force -Path $dist,$buildRoot,$lockDirectory | Out-Null
 
+function Test-FileLocked([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $false }
+  try {
+    $handle = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    $handle.Dispose()
+    return $false
+  } catch { return $true }
+}
+
 function Test-LockOwnerAlive([object]$lock) {
   if (-not $lock.pid) { return $false }
   $process = Get-Process -Id ([int]$lock.pid) -ErrorAction SilentlyContinue
@@ -23,6 +32,8 @@ $self = Get-Process -Id $PID
 $lock = [ordered]@{ schemaVersion='backend-build-lock/v1'; pid=$PID; processStartTime=$self.StartTime.ToUniversalTime().ToString('o'); startedAt=(Get-Date).ToUniversalTime().ToString('o'); workDirectory='pending' }
 $stream = $null
 try {
+  $published = Join-Path $dist 'ai-worklog-server.exe'
+  if (Test-FileLocked $published) { throw "Packaged backend is in use: $published. Stop the Extension Development Host, then rerun scripts/build-backend.ps1." }
   # CreateNew is the atomic acquisition primitive: concurrent builders cannot
   # both claim the lock after observing a missing file.
   $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
@@ -36,7 +47,13 @@ try {
   python -m PyInstaller --noconfirm --clean --onefile --name ai-worklog-server --distpath $runDist --workpath $work --specpath $work (Join-Path $root 'apps\local-server\app\main.py')
   $candidate = Join-Path $runDist 'ai-worklog-server.exe'
   if (-not (Test-Path -LiteralPath $candidate)) { throw 'PyInstaller completed without ai-worklog-server.exe' }
-  Copy-Item -LiteralPath $candidate -Destination (Join-Path $dist 'ai-worklog-server.exe') -Force
+  Copy-Item -LiteralPath $candidate -Destination $published -Force
+  # Keep F5's bundled fallback synchronized with the workspace artifact.  The
+  # resolver prefers the artifact in a repository, but this prevents a stale
+  # extension-local EXE when the workspace artifact is unavailable.
+  $extensionServer = Join-Path $root 'apps\vscode-extension\server'
+  New-Item -ItemType Directory -Force -Path $extensionServer | Out-Null
+  Copy-Item -LiteralPath $candidate -Destination (Join-Path $extensionServer 'ai-worklog-server.exe') -Force
   Write-Output "Backend artifact: $dist\ai-worklog-server.exe"
 } finally {
   if ($stream) { $stream.Dispose() }

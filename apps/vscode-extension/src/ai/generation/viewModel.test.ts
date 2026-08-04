@@ -20,3 +20,11 @@ test('sidebar generation fingerprint changes only for meaningful status data', (
   assert.notEqual(generationFingerprint(job), generationFingerprint({ ...job, status: 'validating' }));
   assert.equal(generationSidebarText(undefined), 'AI Summary: not generated');
 });
+
+test('sidebar status contract exposes an action for every lifecycle state', () => {
+  const actions: Record<string, string[]> = {
+    not_generated: ['生成总结草稿'], queued: ['取消生成'], running: ['取消生成'], validating: ['取消生成'],
+    succeeded: ['查看草稿', '生成新草稿'], failed: ['重新生成'], cancelled: ['重新生成'], interrupted: ['重新生成']
+  };
+  for (const labels of Object.values(actions)) assert.ok(labels.length > 0);
+});

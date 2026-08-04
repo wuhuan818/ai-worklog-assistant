@@ -25,6 +25,11 @@ test('ApiClient exposes only the safe AI error message envelope', async () => {
   await assert.rejects(() => client.testAiConnection({ provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-flash', api_key: 'synthetic-key', thinking_enabled: false, timeout_seconds: 30, max_output_tokens: 16 }), /API Key 无效/);
 });
 
+test('ApiClient preserves a stable backend error code for generation error mapping', async () => {
+  const client = new ApiClient('http://localhost', 'token', { fetch: async () => new Response(JSON.stringify({ detail: { code: 'context_not_found', message: 'Context package was not found' } }), { status: 404 }) });
+  await assert.rejects(() => client.createAiSummaryGeneration('missing', { profile_id: 'p', provider: 'deepseek', base_url: 'https://provider.example/v1', model: 'm', thinking_enabled: false, timeout_seconds: 30, max_output_tokens: 20, api_key: 'synthetic-secret' }, 'key'), (error: ApiError) => error.status === 404 && error.errorCode === 'context_not_found' && !error.message.includes('synthetic-secret'));
+});
+
 test('ApiClient treats an empty active task envelope as normal', async () => {
   const transport: HttpTransport = { fetch: async () => new Response(JSON.stringify({ task: null }), { status: 200 }) };
   assert.equal(await new ApiClient('http://localhost', 'token', transport).activeTask(), null);

@@ -22,9 +22,10 @@ export interface AiGenerationProfile { profile_id: string; provider: string; bas
 export interface AiGenerationJob { id?: string; job_id?: string; context_id: string; task_id?: string; status: AiGenerationStatus; provider?: string; model?: string; error_code?: string | null; error_summary?: string | null; input_estimated_tokens?: number; provider_prompt_tokens?: number | null; provider_completion_tokens?: number | null; provider_total_tokens?: number | null; latency_ms?: number | null; draft_id?: string | null; }
 export interface AiSummaryDraft { id: string; context_id: string; task_id: string; schema_version: 'ai-summary-draft/v1'; status: 'draft'; content_json?: AiSummaryDraftContent; content?: AiSummaryDraftContent; provider?: string; model?: string; prompt_version?: string; context_hash?: string; output_redaction_count?: number; created_at?: string; updated_at?: string; }
 export interface AiSummaryDraftContent { schema_version: 'ai-summary-draft/v1'; sections: Record<'task_summary' | 'code_changes' | 'commands_and_results' | 'bug_solutions' | 'unresolved_issues' | 'todos' | 'daily_report' | 'knowledge_candidates', unknown>; }
+export interface BackendHealth { status: string; service: string; api_version?: string; features?: string[]; build_commit?: string; }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string, public readonly category: 'http' | 'transport' | 'protocol' = 'http') { super(message); this.name = 'ApiError'; }
+  constructor(public readonly status: number, message: string, public readonly category: 'http' | 'transport' | 'protocol' = 'http', public readonly errorCode?: string) { super(message); this.name = 'ApiError'; }
 }
 
 export class ApiClient {
@@ -37,13 +38,14 @@ export class ApiClient {
     catch (error) { throw new ApiError(0, `后端不可用：${error instanceof Error ? error.message : String(error)}`, 'transport'); }
     if (!response.ok) {
       let message = await response.text();
-      try { const parsed = JSON.parse(message) as { detail?: string | { message?: string } }; const detail = parsed.detail; message = typeof detail === 'string' ? detail : detail?.message || message; } catch { /* preserve non-JSON server errors */ }
-      throw new ApiError(response.status, message);
+      let errorCode: string | undefined;
+      try { const parsed = JSON.parse(message) as { detail?: string | { code?: string; message?: string } }; const detail = parsed.detail; if (typeof detail !== 'string') errorCode = detail?.code; message = typeof detail === 'string' ? detail : detail?.message || message; } catch { /* preserve non-JSON server errors */ }
+      throw new ApiError(response.status, message, 'http', errorCode);
     }
     return response.json() as Promise<T>;
   }
 
-  health(): Promise<{ status: string; service: string }> { return this.request('/health', { headers: {} }); }
+  health(): Promise<BackendHealth> { return this.request('/health', { headers: {} }); }
   shutdown(generation: number): Promise<{ accepted: boolean; generation: number }> { return this.request('/runtime/shutdown', { method: 'POST', body: JSON.stringify({ generation }) }); }
   listProjects(): Promise<ProjectView[]> { return this.request('/projects'); }
   listTasks(status?: string): Promise<TaskView[]> { const query = status ? `?${new URLSearchParams({ status })}` : ''; return this.request(`/tasks${query}`); }
