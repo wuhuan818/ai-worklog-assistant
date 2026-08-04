@@ -48,6 +48,7 @@ def test_provider_generation_payload_contract(provider, mode, expected):
     req = StructuredSummaryRequest(profile=profile(provider, structured_output_mode=mode), context_package=context())
     payload = build_generation_payload(req)
     assert payload["model"] == "test-model" and SECRET not in str(payload)
+    assert payload["max_tokens"] >= 2048
     assert (expected in payload) if expected else ("thinking" not in payload and "enable_thinking" not in payload)
     if mode == "json_schema": assert payload["response_format"]["type"] == "json_schema"
     if mode == "json_object": assert payload["response_format"] == {"type": "json_object"}

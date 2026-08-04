@@ -5,6 +5,7 @@ export type QwenRegion = 'beijing' | 'singapore' | 'tokyo' | 'frankfurt' | 'virg
 export type AiConnectionState = 'not-configured' | 'not-tested' | 'testing' | 'connected' | 'failed';
 export interface AiProviderProfile { id: string; displayName: string; provider: AiProviderKind; baseUrl: string; model: string; thinkingEnabled: boolean; timeoutSeconds: number; maxOutputTokens: number; createdAt: string; updatedAt: string; qwenRegion?: QwenRegion; workspaceId?: string; }
 const PROFILES_KEY = 'aiWorklog.aiProvider.profiles'; const CURRENT_KEY = 'aiWorklog.aiProvider.current';
+export const minimumStructuredOutputTokens = 2048;
 export const secretKey = (id: string) => `aiWorklog.aiProvider.${id}.apiKey`;
 export const defaultsFor = (provider: AiProviderKind) => provider === 'deepseek' ? { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' } : provider === 'qwen' ? { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3.7-plus' } : { baseUrl: '', model: '' };
 export const qwenRegionOptions: ReadonlyArray<{ label: string; region: QwenRegion; baseUrl: string; requiresWorkspaceId: boolean }> = [
@@ -25,7 +26,7 @@ export function qwenWorkspaceBaseUrl(region: QwenRegion, workspaceId?: string): 
 export function endpointSummary(url: string): string { try { const value = new URL(url); const host = value.hostname.endsWith('.maas.aliyuncs.com') ? `<workspace>.${value.hostname.split('.').slice(1).join('.')}` : value.host; return `${value.protocol}//${host}${value.pathname}`; } catch { return '-'; } }
 export class AiProfileStore {
   constructor(private readonly state: vscode.Memento, private readonly secrets: vscode.SecretStorage) {}
-  profiles(): AiProviderProfile[] { return this.state.get<AiProviderProfile[]>(PROFILES_KEY, []); }
+  profiles(): AiProviderProfile[] { return this.state.get<AiProviderProfile[]>(PROFILES_KEY, []).map(profile => ({ ...profile, maxOutputTokens: Math.max(profile.maxOutputTokens || 0, minimumStructuredOutputTokens) })); }
   current(): AiProviderProfile | undefined { const id = this.state.get<string>(CURRENT_KEY); return this.profiles().find(profile => profile.id === id); }
   async save(profile: AiProviderProfile, apiKey?: string): Promise<void> { const profiles = this.profiles(); const index = profiles.findIndex(item => item.id === profile.id); if (index < 0 && profiles.some(item => item.id === profile.id)) throw new Error('重复的 AI Profile ID'); if (index >= 0) profiles[index] = profile; else profiles.push(profile); await this.state.update(PROFILES_KEY, profiles); if (apiKey !== undefined && apiKey !== '') await this.secrets.store(secretKey(profile.id), apiKey); }
   async select(id: string | undefined): Promise<void> { if (id && !this.profiles().some(profile => profile.id === id)) throw new Error('AI Profile 不存在'); await this.state.update(CURRENT_KEY, id); }

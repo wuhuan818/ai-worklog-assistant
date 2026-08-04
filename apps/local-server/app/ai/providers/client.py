@@ -11,6 +11,8 @@ from app.ai.context.redaction import redact_text
 from .prompt import build_repair_messages, build_summary_messages
 from .structured import SummaryValidationError, normalize_evidence_refs, parse_and_validate_summary, summary_json_schema
 
+MIN_STRUCTURED_OUTPUT_TOKENS = 2048
+
 
 class ProviderRequestError(Exception):
     def __init__(self, code: str, status_code: Optional[int] = None, summary: Optional[str] = None):
@@ -25,7 +27,8 @@ def _error_code(status: int) -> str:
 def build_generation_payload(request: StructuredSummaryRequest) -> Dict[str, Any]:
     profile = request.profile
     messages = build_summary_messages(request.context_package) if not request.repair_instruction else build_repair_messages(request.context_package, *json.loads(request.repair_instruction))
-    payload: Dict[str, Any] = {"model": profile.model, "messages": messages, "stream": False, "max_tokens": profile.max_output_tokens}
+    # Full ai-summary-draft/v1 output cannot fit legacy values such as 16.
+    payload: Dict[str, Any] = {"model": profile.model, "messages": messages, "stream": False, "max_tokens": max(profile.max_output_tokens, MIN_STRUCTURED_OUTPUT_TOKENS)}
     if profile.structured_output_mode == "json_schema":
         payload["response_format"] = {"type": "json_schema", "json_schema": {"name": "ai_summary_draft", "strict": True, "schema": summary_json_schema()}}
     elif profile.structured_output_mode == "json_object":
