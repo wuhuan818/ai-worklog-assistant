@@ -37,6 +37,10 @@ class StructuredSummaryRequest(BaseModel):
 
 class StructuredSummaryResult(BaseModel):
     content: str = Field(min_length=1)
+    # Safe diagnostics only.  These describe the final-content envelope and
+    # never retain Provider text or reasoning.
+    content_shape: str = Field(default="string", max_length=100)
+    content_characters: int = Field(default=0, ge=0)
     provider_status: int = 200
     prompt_tokens: Optional[int] = Field(default=None, ge=0)
     completion_tokens: Optional[int] = Field(default=None, ge=0)

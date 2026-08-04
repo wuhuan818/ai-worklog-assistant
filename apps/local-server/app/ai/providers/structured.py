@@ -166,8 +166,12 @@ def _unique_json_object(content: str) -> str:
             depth -= 1
             if depth == 0:
                 candidates.append(value[start:index + 1]); start = None
-    if start is not None or len(candidates) != 1:
-        raise SummaryValidationError("json_extraction", ["$" if not candidates else "multiple_json_objects"])
+    if start is not None:
+        raise SummaryValidationError("json_extraction_unterminated", ["$"])
+    if not candidates:
+        raise SummaryValidationError("json_extraction_no_object", ["$"])
+    if len(candidates) != 1:
+        raise SummaryValidationError("json_extraction_multiple_objects", ["multiple_json_objects"])
     return candidates[0]
 
 

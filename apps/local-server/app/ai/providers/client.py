@@ -39,15 +39,18 @@ def build_generation_payload(request: StructuredSummaryRequest) -> Dict[str, Any
     return payload
 
 
-def _final_content(value: Any) -> str:
-    if isinstance(value, str): return value
+def _final_content(value: Any) -> tuple[str, str]:
+    """Extract final answer text and a safe envelope description only."""
+    if isinstance(value, str): return value, "string"
     if isinstance(value, list):
-        return "".join(part for part in (_final_content(item) for item in value) if part)
+        extracted = [_final_content(item) for item in value]
+        return "".join(part for part, _ in extracted if part), "parts[" + ",".join(sorted(set(shape for _, shape in extracted)))[:70] + "]"
     if isinstance(value, dict):
         text = value.get("text")
-        if isinstance(text, str): return text
-        if isinstance(text, dict) and isinstance(text.get("value"), str): return text["value"]
-    return ""
+        if isinstance(text, str): return text, "object:text"
+        if isinstance(text, dict) and isinstance(text.get("value"), str): return text["value"], "object:text.value"
+        return "", "object:unsupported"
+    return "", type(value).__name__
 
 
 async def generate_structured_summary(request: StructuredSummaryRequest) -> StructuredSummaryResult:
@@ -67,14 +70,14 @@ async def generate_structured_summary(request: StructuredSummaryRequest) -> Stru
     try:
         body = response.json()
         message = body["choices"][0]["message"]
-        content = _final_content(message.get("content"))
+        content, content_shape = _final_content(message.get("content"))
     except (TypeError, KeyError, IndexError, ValueError) as error:
         raise ProviderRequestError("provider_invalid_response", response.status_code) from error
     if not content.strip():
         raise ProviderRequestError("provider_empty_content", response.status_code, "Provider returned no final content")
     usage = body.get("usage") if isinstance(body, dict) else {}
     usage = usage if isinstance(usage, dict) else {}
-    return StructuredSummaryResult(content=content, provider_status=response.status_code, prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"))
+    return StructuredSummaryResult(content=content, content_shape=content_shape, content_characters=len(content), provider_status=response.status_code, prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"))
 
 
 async def generate_validated_summary(profile: Any, api_key: str, context: Dict[str, Any]):
@@ -122,8 +125,9 @@ async def generate_validated_summary(profile: Any, api_key: str, context: Dict[s
             # previous answer is redacted and never persisted or logged.
             last_error = error
             if attempt >= 2:
-                detail = ", ".join(error.paths) or error.stage
-                raise ProviderRequestError("structured_output_invalid", summary=f"AI 返回内容未通过结构化校验：{detail}。已尝试 {attempt} 次，未创建草稿。") from error
+                detail = ", ".join(error.paths) or "$"
+                shape = result.content_shape
+                raise ProviderRequestError("structured_output_invalid", summary=f"AI 返回内容未通过结构化校验：{error.stage} at {detail}（final_content={shape}, chars={result.content_characters}）。已尝试 {attempt} 次，未创建草稿。") from error
             safe_output, _ = redact_text(result.content)
             request = request.model_copy(update={"repair_instruction": json.dumps([error.stage, error.paths, list(refs), safe_output], ensure_ascii=False)})
         await asyncio.sleep(1 if attempt == 1 else 2)

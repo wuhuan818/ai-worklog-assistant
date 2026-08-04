@@ -78,8 +78,10 @@ def test_local_validation_evidence_paths_fences_and_redaction():
 def test_parser_extracts_one_json_object_and_rejects_ambiguous_objects():
     draft, _ = parse_and_validate_summary("Here is the draft:\n" + valid_content() + "\nThanks.", ["note:1"])
     assert draft.schema_version == SUMMARY_SCHEMA_VERSION
-    with pytest.raises(SummaryValidationError, match="json_extraction"):
+    with pytest.raises(SummaryValidationError, match="json_extraction_multiple_objects"):
         parse_and_validate_summary(valid_content() + "\n" + valid_content(), ["note:1"])
+    with pytest.raises(SummaryValidationError, match="json_extraction_no_object"):
+        parse_and_validate_summary("an answer without a JSON object", ["note:1"])
 
 
 def test_object_provenance_refs_are_normalized_for_prompt_repair_and_evidence():
@@ -119,7 +121,7 @@ def test_async_generation_accepts_content_parts_and_rejects_empty_reasoning_only
     import app.ai.providers.client as client
     monkeypatch.setattr(client.httpx, "AsyncClient", lambda **kwargs: Client())
     result = asyncio.run(generate_structured_summary(StructuredSummaryRequest(profile=profile(), context_package=context())))
-    assert result.content == valid_content()
+    assert result.content == valid_content() and result.content_shape == "parts[object:text]"
 
 
 def test_validated_summary_convenience_api_returns_persistable_content(monkeypatch):
