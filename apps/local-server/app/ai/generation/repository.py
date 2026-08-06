@@ -9,7 +9,7 @@ ACTIVE_STATUSES = ("queued", "running", "validating")
 
 
 def ensure_schema(c: sqlite3.Connection) -> None:
-    """Additive Stage 9 migration; no request secrets or responses are stored."""
+    """Additive Stage 9/10A migration; no request secrets or responses are stored."""
     c.executescript("""
       CREATE TABLE IF NOT EXISTS ai_generation_jobs(
         id TEXT PRIMARY KEY, context_id TEXT NOT NULL, task_id TEXT NOT NULL,
@@ -40,6 +40,24 @@ def ensure_schema(c: sqlite3.Connection) -> None:
       );
       CREATE INDEX IF NOT EXISTS ix_ai_summary_drafts_task_created
         ON ai_summary_drafts(task_id, created_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS ai_summary_revisions(
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, draft_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL, parent_revision_id TEXT,
+        schema_version TEXT NOT NULL, content_json TEXT NOT NULL, content_hash TEXT NOT NULL,
+        source TEXT NOT NULL, idempotency_key TEXT, created_at TEXT NOT NULL,
+        UNIQUE(draft_id, revision_number), UNIQUE(draft_id, idempotency_key)
+      );
+      CREATE INDEX IF NOT EXISTS ix_ai_summary_revisions_draft_created
+        ON ai_summary_revisions(draft_id, revision_number DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS ai_summary_reviews(
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, draft_id TEXT NOT NULL,
+        revision_id TEXT, status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected')),
+        rejection_reason TEXT, superseded_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ix_ai_summary_reviews_task_created
+        ON ai_summary_reviews(task_id, created_at DESC, id DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_ai_summary_reviews_current_approved
+        ON ai_summary_reviews(task_id) WHERE status='approved' AND superseded_at IS NULL;
     """)
 
 
@@ -76,6 +94,29 @@ def get_draft(c: sqlite3.Connection, draft_id: str) -> Optional[dict[str, Any]]:
 def list_drafts(c: sqlite3.Connection, task_id: str) -> list[dict[str, Any]]:
     rows = c.execute("SELECT * FROM ai_summary_drafts WHERE task_id=? AND status='draft' ORDER BY created_at DESC, id DESC", (task_id,)).fetchall()
     return [draft_output(row) for row in rows]
+
+
+def list_revisions(c: sqlite3.Connection, draft_id: str) -> list[dict[str, Any]]:
+    rows = c.execute("SELECT * FROM ai_summary_revisions WHERE draft_id=? ORDER BY revision_number DESC, id DESC", (draft_id,)).fetchall()
+    return [revision_output(row) for row in rows]
+
+
+def revision_output(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row); out["content"] = json.loads(out.pop("content_json")); return out
+
+
+def get_revision(c: sqlite3.Connection, revision_id: str) -> Optional[dict[str, Any]]:
+    row = c.execute("SELECT * FROM ai_summary_revisions WHERE id=?", (revision_id,)).fetchone()
+    return revision_output(row) if row else None
+
+
+def review_history(c: sqlite3.Connection, task_id: str) -> list[dict[str, Any]]:
+    return [dict(row) for row in c.execute("SELECT * FROM ai_summary_reviews WHERE task_id=? ORDER BY created_at DESC, id DESC", (task_id,)).fetchall()]
+
+
+def current_review(c: sqlite3.Connection, task_id: str) -> Optional[dict[str, Any]]:
+    row = c.execute("SELECT * FROM ai_summary_reviews WHERE task_id=? AND status='approved' AND superseded_at IS NULL", (task_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def interrupt_active(c: sqlite3.Connection, timestamp: str) -> int:

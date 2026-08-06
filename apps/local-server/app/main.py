@@ -19,7 +19,7 @@ PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 API_VERSION = 'stage-09'
-FEATURES = ['ai-summary-generation-v1']
+FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1']
 BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
 app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
 from app.ai.router import router as ai_router

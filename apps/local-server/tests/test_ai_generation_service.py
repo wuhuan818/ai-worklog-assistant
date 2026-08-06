@@ -79,3 +79,23 @@ def test_ready_context_gate_rejects_not_ready(database):
     with pytest.raises(service.GenerationError) as error:
         service.create_job(database, "context-1", profile(), "bad", "now")
     assert error.value.code == "context_not_ready"
+
+
+def test_revisions_are_immutable_validated_and_reviews_are_transactional(database):
+    job, _ = service.create_job(database, "context-1", profile(), "review", "now")
+    async def generator(**kwargs): return {"content": valid_content()}
+    asyncio.run(service.run_job(lambda: database, job["id"], profile(), "secret", generator, lambda: "later"))
+    draft = repository.list_drafts(database, "task-1")[0]
+    first = service.create_revision(database, "task-1", draft["id"], valid_content(), "user_edit", "one", "key-1")
+    again = service.create_revision(database, "task-1", draft["id"], valid_content(), "user_edit", "two", "key-1")
+    assert again["id"] == first["id"] and first["revision_number"] == 1
+    second_content = valid_content(); second_content["sections"]["task_summary"]["summary"] = "edited"
+    second = service.create_revision(database, "task-1", draft["id"], second_content, "user_edit", "three", "key-2")
+    assert [item["revision_number"] for item in repository.list_revisions(database, draft["id"])] == [2, 1]
+    approved = service.approve_revision(database, "task-1", draft["id"], first["id"], "four")
+    assert approved["revision_id"] == first["id"]
+    service.approve_revision(database, "task-1", draft["id"], second["id"], "five")
+    assert repository.current_review(database, "task-1")["revision_id"] == second["id"]
+    rejected = service.reject_content(database, "task-1", draft["id"], first["id"], "needs more detail", "six")
+    assert rejected["status"] == "rejected" and len(repository.review_history(database, "task-1")) == 3
+    assert repository.get_draft(database, draft["id"])["content"]["sections"]["task_summary"]["summary"] == "done"

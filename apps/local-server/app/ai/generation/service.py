@@ -80,6 +80,63 @@ def _content_hash(content: Any) -> str:
     return hashlib.sha256(json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+def _validated_revision(c: sqlite3.Connection, draft: dict[str, Any], content: Any) -> dict[str, Any]:
+    from app.ai.providers.structured import parse_and_validate_summary
+    row = c.execute("SELECT context_json FROM ai_context_packages WHERE id=?", (draft["context_id"],)).fetchone()
+    if not row: raise GenerationError("context_not_found", "Draft context package was not found")
+    try: refs = json.loads(row["context_json"]).get("provenance", {}).get("included_source_refs", [])
+    except (TypeError, ValueError): raise GenerationError("context_invalid", "Draft context package is invalid")
+    try:
+        result, _ = parse_and_validate_summary(json.dumps(content, ensure_ascii=False), refs)
+        return result.model_dump()
+    except ValueError as error:
+        code = "evidence_validation_failed" if getattr(error, "stage", "") == "evidence" else "revision_schema_invalid"
+        raise GenerationError(code, "Revision content failed structured validation") from error
+
+
+def create_revision(c: sqlite3.Connection, task_id: str, draft_id: str, content: Any, source: str, timestamp: str, idempotency_key: Optional[str] = None) -> dict[str, Any]:
+    repository.ensure_schema(c); draft = repository.get_draft(c, draft_id)
+    if not draft: raise GenerationError("draft_not_found", "Summary draft was not found")
+    if draft["task_id"] != task_id: raise GenerationError("draft_task_mismatch", "Summary draft does not belong to this task")
+    if idempotency_key:
+        existing = c.execute("SELECT * FROM ai_summary_revisions WHERE draft_id=? AND idempotency_key=?", (draft_id, idempotency_key)).fetchone()
+        if existing: return repository.revision_output(existing)
+    validated = _validated_revision(c, draft, content)
+    c.execute("BEGIN IMMEDIATE")
+    try:
+        next_number = c.execute("SELECT COALESCE(MAX(revision_number),0)+1 FROM ai_summary_revisions WHERE draft_id=?", (draft_id,)).fetchone()[0]
+        parent = c.execute("SELECT id FROM ai_summary_revisions WHERE draft_id=? ORDER BY revision_number DESC LIMIT 1", (draft_id,)).fetchone()
+        revision_id = str(uuid.uuid4())
+        c.execute("INSERT INTO ai_summary_revisions(id,task_id,draft_id,revision_number,parent_revision_id,schema_version,content_json,content_hash,source,idempotency_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (revision_id, task_id, draft_id, next_number, parent[0] if parent else None, OUTPUT_SCHEMA_VERSION, json.dumps(validated, ensure_ascii=False, sort_keys=True, separators=(",", ":")), _content_hash(validated), source, idempotency_key, timestamp))
+        c.commit()
+    except Exception: c.rollback(); raise
+    return repository.get_revision(c, revision_id)
+
+
+def approve_revision(c: sqlite3.Connection, task_id: str, draft_id: str, revision_id: str, timestamp: str) -> dict[str, Any]:
+    revision = repository.get_revision(c, revision_id)
+    if not revision: raise GenerationError("revision_not_found", "Summary revision was not found")
+    if revision["task_id"] != task_id or revision["draft_id"] != draft_id: raise GenerationError("revision_task_mismatch", "Revision does not belong to this draft and task")
+    c.execute("BEGIN IMMEDIATE")
+    try:
+        current = repository.current_review(c, task_id)
+        if current and current["revision_id"] == revision_id: c.commit(); return current
+        if current: c.execute("UPDATE ai_summary_reviews SET superseded_at=?,updated_at=? WHERE id=?", (timestamp, timestamp, current["id"]))
+        review_id = str(uuid.uuid4()); c.execute("INSERT INTO ai_summary_reviews(id,task_id,draft_id,revision_id,status,rejection_reason,superseded_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", (review_id, task_id, draft_id, revision_id, "approved", None, None, timestamp, timestamp)); c.commit()
+    except Exception: c.rollback(); raise
+    return repository.current_review(c, task_id)
+
+
+def reject_content(c: sqlite3.Connection, task_id: str, draft_id: str, revision_id: Optional[str], reason: str, timestamp: str) -> dict[str, Any]:
+    if not reason.strip(): raise GenerationError("rejection_reason_required", "A rejection reason is required")
+    draft = repository.get_draft(c, draft_id)
+    if not draft or draft["task_id"] != task_id: raise GenerationError("draft_task_mismatch", "Summary draft does not belong to this task")
+    if revision_id:
+        revision = repository.get_revision(c, revision_id)
+        if not revision or revision["task_id"] != task_id or revision["draft_id"] != draft_id: raise GenerationError("revision_task_mismatch", "Revision does not belong to this draft and task")
+    review_id = str(uuid.uuid4()); c.execute("INSERT INTO ai_summary_reviews(id,task_id,draft_id,revision_id,status,rejection_reason,superseded_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", (review_id, task_id, draft_id, revision_id, "rejected", reason.strip()[:1000], None, timestamp, timestamp)); return [x for x in repository.review_history(c, task_id) if x["id"] == review_id][0]
+
+
 async def run_job(db_factory: Callable[[], sqlite3.Connection], job_id: str, profile: dict[str, Any], api_key: str, generator: Callable[..., Awaitable[Any]], timestamp: Callable[[], str]) -> None:
     """Run an injected provider adapter; late responses never revive cancelled jobs."""
     c = db_factory(); job = repository.get_job(c, job_id)

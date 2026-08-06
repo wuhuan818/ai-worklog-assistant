@@ -1,5 +1,10 @@
 # Changelog
 
+## Stage 10A
+
+- Added immutable AI summary revisions and persisted approval/rejection history.
+- Added Summary Review API and VS Code panel controls for draft/version selection, editing, saving, approving, rejecting, and reload recovery.
+
 ## [0.1.1-verification] - 2026-07-29
 
 ### Added

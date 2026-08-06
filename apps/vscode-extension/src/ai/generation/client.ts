@@ -1,4 +1,4 @@
-import { ApiClient, AiGenerationJob, AiGenerationProfile, AiSummaryDraft } from '../../apiClient';
+import { ApiClient, AiGenerationJob, AiGenerationProfile, AiSummaryDraft, AiSummaryDraftContent, AiSummaryRevision, AiSummaryReview } from '../../apiClient';
 import { isTerminalGenerationStatus } from './types';
 
 export class GenerationClient {
@@ -8,6 +8,11 @@ export class GenerationClient {
   cancel(jobId: string): Promise<AiGenerationJob> { return this.api.cancelAiGenerationJob(jobId); }
   drafts(taskId: string): Promise<AiSummaryDraft[]> { return this.api.listAiSummaryDrafts(taskId); }
   draft(draftId: string): Promise<AiSummaryDraft> { return this.api.getAiSummaryDraft(draftId); }
+  revisions(draftId: string): Promise<AiSummaryRevision[]> { return this.api.listAiSummaryRevisions(draftId); }
+  reviews(taskId: string): Promise<{ current: AiSummaryReview | null; history: AiSummaryReview[] }> { return this.api.getAiSummaryReviews(taskId); }
+  saveRevision(taskId: string, draftId: string, content: AiSummaryDraftContent, key: string): Promise<AiSummaryRevision> { return this.api.saveAiSummaryRevision(taskId, draftId, content, key); }
+  approve(taskId: string, draftId: string, revisionId: string): Promise<AiSummaryReview> { return this.api.approveAiSummaryRevision(taskId, draftId, revisionId); }
+  reject(taskId: string, draftId: string, revisionId: string | undefined, reason: string): Promise<AiSummaryReview> { return this.api.rejectAiSummaryContent(taskId, draftId, revisionId, reason); }
   async wait(jobId: string, onUpdate?: (job: AiGenerationJob) => void, signal?: AbortSignal): Promise<AiGenerationJob> {
     const deadline = Date.now() + this.maxWaitMs;
     for (;;) {

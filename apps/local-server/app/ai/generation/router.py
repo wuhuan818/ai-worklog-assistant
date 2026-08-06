@@ -33,6 +33,14 @@ class CreateGenerationRequest(BaseModel):
     profile: GenerationProfile
     idempotency_key: str = Field(min_length=1, max_length=200)
 
+class RevisionRequest(BaseModel):
+    content: dict
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+class RejectRequest(BaseModel):
+    revision_id: Optional[str] = None
+    reason: str = Field(min_length=1, max_length=1000)
+
 
 def _error(error: service.GenerationError):
     raise HTTPException(400, {"code": error.code, "message": error.message})
@@ -102,3 +110,44 @@ def summary_draft(draft_id: str, authorization: Optional[str] = Header(None)):
     main.auth(authorization); draft = repository.get_draft(main.db(), draft_id)
     if not draft: raise HTTPException(404, {"code": "draft_not_found", "message": "Summary draft was not found"})
     return draft
+
+@router.get("/tasks/{task_id}/ai/summary-reviews")
+def reviews_for_task(task_id: str, authorization: Optional[str] = Header(None)):
+    from app import main
+    main.auth(authorization); c = main.db()
+    return {"current": repository.current_review(c, task_id), "history": repository.review_history(c, task_id)}
+
+@router.get("/ai/summary-drafts/{draft_id}/revisions")
+def revisions_for_draft(draft_id: str, authorization: Optional[str] = Header(None)):
+    from app import main
+    main.auth(authorization); c = main.db()
+    if not repository.get_draft(c, draft_id): raise HTTPException(404, {"code":"draft_not_found", "message":"Summary draft was not found"})
+    return {"items": repository.list_revisions(c, draft_id)}
+
+@router.get("/ai/summary-revisions/{revision_id}")
+def summary_revision(revision_id: str, authorization: Optional[str] = Header(None)):
+    from app import main
+    main.auth(authorization); revision = repository.get_revision(main.db(), revision_id)
+    if not revision: raise HTTPException(404, {"code":"revision_not_found", "message":"Summary revision was not found"})
+    return revision
+
+@router.post("/tasks/{task_id}/ai/summary-drafts/{draft_id}/revisions")
+def save_revision(task_id: str, draft_id: str, request: RevisionRequest, authorization: Optional[str] = Header(None)):
+    from app import main
+    main.auth(authorization)
+    try: return service.create_revision(main.db(), task_id, draft_id, request.content, "user_edit", main.now(), request.idempotency_key)
+    except service.GenerationError as error: _error(error)
+
+@router.post("/tasks/{task_id}/ai/summary-drafts/{draft_id}/revisions/{revision_id}/approve")
+def approve(task_id: str, draft_id: str, revision_id: str, authorization: Optional[str] = Header(None)):
+    from app import main
+    main.auth(authorization)
+    try: return service.approve_revision(main.db(), task_id, draft_id, revision_id, main.now())
+    except service.GenerationError as error: _error(error)
+
+@router.post("/tasks/{task_id}/ai/summary-drafts/{draft_id}/reject")
+def reject(task_id: str, draft_id: str, request: RejectRequest, authorization: Optional[str] = Header(None)):
+    from app import main
+    main.auth(authorization)
+    try: return service.reject_content(main.db(), task_id, draft_id, request.revision_id, request.reason, main.now())
+    except service.GenerationError as error: _error(error)

@@ -1,5 +1,13 @@
 # API
 
+## Stage 10A Summary Review
+
+- `GET /tasks/{task_id}/ai/summary-reviews` returns current approval and audit history.
+- `GET /ai/summary-drafts/{draft_id}/revisions` and `GET /ai/summary-revisions/{revision_id}` read versions.
+- `POST /tasks/{task_id}/ai/summary-drafts/{draft_id}/revisions` creates a validated immutable revision (idempotency key supported).
+- `POST /tasks/{task_id}/ai/summary-drafts/{draft_id}/revisions/{revision_id}/approve` selects one current approval idempotently.
+- `POST /tasks/{task_id}/ai/summary-drafts/{draft_id}/reject` records a required rejection reason without deleting content.
+
 除 `/health` 外均使用 `Authorization: Bearer <session-token>`。错误返回 FastAPI JSON 错误结构。
 
 核心接口：`POST /session/initialize`、`GET/POST /projects`、`GET /tasks/active`、`POST /tasks`、`GET /tasks/{id}`、`POST /tasks/{id}/end`、`POST /events`、`POST /tasks/{id}/bugs`、`POST /bugs/{id}/resolve`、`POST /tasks/{id}/summaries/generate`、`GET /tasks/{id}/summaries/latest`、`PUT /summaries/{id}`、`POST /summaries/{id}/confirm`、`GET /knowledge/search?q=`。

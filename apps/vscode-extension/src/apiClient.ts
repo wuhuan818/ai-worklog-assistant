@@ -22,6 +22,8 @@ export interface AiGenerationProfile { profile_id: string; provider: string; bas
 export interface AiGenerationJob { id?: string; job_id?: string; context_id: string; task_id?: string; status: AiGenerationStatus; provider?: string; model?: string; attempt_count?: number; error_code?: string | null; error_summary?: string | null; input_estimated_tokens?: number; provider_prompt_tokens?: number | null; provider_completion_tokens?: number | null; provider_total_tokens?: number | null; latency_ms?: number | null; draft_id?: string | null; }
 export interface AiSummaryDraft { id: string; context_id: string; task_id: string; schema_version: 'ai-summary-draft/v1'; status: 'draft'; content_json?: AiSummaryDraftContent; content?: AiSummaryDraftContent; provider?: string; model?: string; prompt_version?: string; context_hash?: string; output_redaction_count?: number; created_at?: string; updated_at?: string; }
 export interface AiSummaryDraftContent { schema_version: 'ai-summary-draft/v1'; sections: Record<'task_summary' | 'code_changes' | 'commands_and_results' | 'bug_solutions' | 'unresolved_issues' | 'todos' | 'daily_report' | 'knowledge_candidates', unknown>; }
+export interface AiSummaryRevision { id: string; task_id: string; draft_id: string; revision_number: number; schema_version: 'ai-summary-draft/v1'; content: AiSummaryDraftContent; source: string; created_at: string; }
+export interface AiSummaryReview { id: string; task_id: string; draft_id: string; revision_id?: string | null; status: 'pending' | 'approved' | 'rejected'; rejection_reason?: string | null; superseded_at?: string | null; created_at: string; }
 export interface BackendHealth { status: string; service: string; api_version?: string; features?: string[]; build_commit?: string; }
 
 export class ApiError extends Error {
@@ -92,5 +94,11 @@ export class ApiClient {
   cancelAiGenerationJob(jobId: string): Promise<AiGenerationJob> { return this.request(`/ai/generation-jobs/${jobId}/cancel`, { method: 'POST' }); }
   listAiSummaryDrafts(taskId: string): Promise<AiSummaryDraft[]> { return this.request<AiSummaryDraft[] | { items: AiSummaryDraft[] }>(`/tasks/${taskId}/ai/summary-drafts`).then(value => Array.isArray(value) ? value : value.items); }
   getAiSummaryDraft(draftId: string): Promise<AiSummaryDraft> { return this.request(`/ai/summary-drafts/${draftId}`); }
+  listAiSummaryRevisions(draftId: string): Promise<AiSummaryRevision[]> { return this.request<{ items: AiSummaryRevision[] }>(`/ai/summary-drafts/${draftId}/revisions`).then(value => value.items); }
+  getAiSummaryRevision(revisionId: string): Promise<AiSummaryRevision> { return this.request(`/ai/summary-revisions/${revisionId}`); }
+  saveAiSummaryRevision(taskId: string, draftId: string, content: AiSummaryDraftContent, idempotencyKey: string): Promise<AiSummaryRevision> { return this.request(`/tasks/${taskId}/ai/summary-drafts/${draftId}/revisions`, { method: 'POST', body: JSON.stringify({ content, idempotency_key: idempotencyKey }) }); }
+  approveAiSummaryRevision(taskId: string, draftId: string, revisionId: string): Promise<AiSummaryReview> { return this.request(`/tasks/${taskId}/ai/summary-drafts/${draftId}/revisions/${revisionId}/approve`, { method: 'POST' }); }
+  rejectAiSummaryContent(taskId: string, draftId: string, revisionId: string | undefined, reason: string): Promise<AiSummaryReview> { return this.request(`/tasks/${taskId}/ai/summary-drafts/${draftId}/reject`, { method: 'POST', body: JSON.stringify({ revision_id: revisionId, reason }) }); }
+  getAiSummaryReviews(taskId: string): Promise<{ current: AiSummaryReview | null; history: AiSummaryReview[] }> { return this.request(`/tasks/${taskId}/ai/summary-reviews`); }
   testAiConnection(input: { provider: string; base_url: string; model: string; api_key: string; thinking_enabled: boolean; timeout_seconds: number; max_output_tokens: number }): Promise<AiConnectionResult> { return this.request('/ai/providers/test-connection', { method: 'POST', body: JSON.stringify(input) }); }
 }
