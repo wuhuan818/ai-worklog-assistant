@@ -33,3 +33,6 @@ The local server builds immutable `task-context-package/v1` snapshots only from 
 ## Stage 09 AI summary boundary
 
 The generation service reads one persisted Ready Context Package by ID and submits only that sanitized snapshot through the selected Provider adapter. It validates `ai-summary-draft/v1`, evidence provenance, paths, output redaction and bounded fields locally before immutable draft persistence. Provider keys are temporary extension-to-server request material; jobs and drafts retain neither keys, Authorization, raw prompts/responses, nor reasoning. The extension owns confirmation, SecretStorage access, status polling, cancellation, and the read-only draft panel.
+# Stage 11A retrieval layer
+
+The local backend owns a persistent `knowledge_search_index` derived exclusively from current `knowledge_publications`. On startup it reconciles legacy published rows; publication updates force a deterministic rebuild. The VS Code Sidebar and Command Palette call `GET /knowledge/search`, then open the returned managed Markdown logical path only after verifying it resolves beneath the managed knowledge root. Retrieval remains entirely local and does not invoke an AI Provider.

@@ -1,11 +1,15 @@
 # 已知限制
 
+## Stage 11A boundary
+
+Published Knowledge retrieval is implemented locally. The Windows SQLite runtime used for packaging does not expose FTS5, so Stage 11A uses a compact deterministic lexical index with CJK character/bigram normalization instead of FTS/BM25. It is not semantic retrieval: embeddings, vector storage, hybrid ranking, reranking, and AI RAG answers remain Stage 11B+ work.
+
 - VS Code 宿主中的 F5、Activity Bar、Webview、文件监听、异常提示、重启和退出清理仍需一次 GUI 人工验收；后端生命周期已有单元测试、真实 EXE 集成测试和 Windows 集成脚本。
 - OutputChannel 和 `context.logUri/ai-worklog.log` 已由代码和测试覆盖，但最终 GUI 下拉列表、查看日志按钮和错误提示仍需人工确认。
 - 开发环境需先执行后端打包；插件会优先解析配置路径，其次解析 workspace 根目录下的 `artifacts/backend/ai-worklog-server.exe`，并兼容扩展目录下的 `server/ai-worklog-server.exe`。
 - 终端完整输出、Shell Integration、精确代码 Diff 和 Debug Console 原始内容尚未实现。
 - 默认 Mock Provider；真实模型、Embedding/RAG、飞书同步和离线队列未实现。
-- 审核 Webview 仍使用可编辑 JSON 文本，未进行大规模 UI 美化。
+- 审核 Webview 使用业务表单；大规模 UI 美化不属于当前阶段。
 - GitHub Actions 已配置，但需要远程 PR 工作流实际运行后再确认云端 Windows runner 结果；本地 Windows 三轮真实 EXE 验证已通过。
 - 阶段 3 当前仅允许单个活动任务；重复结束返回 409，项目重复创建在同名同 Workspace 时幂等。
 - 真实集成脚本依赖 Windows 可执行文件和 PowerShell；脚本已使用有界 deadline、PID 基线和 finally 清理，不应直接复用为用户进程管理工具。
@@ -39,4 +43,4 @@ The Stage 7.1 direct Reload Window automated regression and independent startup 
 
 ## Stage 09 scope boundary
 
-Stage 09 is summary-draft generation only. It deliberately does not offer draft editing, approval/rejection, regeneration UI, Markdown export, knowledge-base writes, embeddings, RAG, agents, web search, provider auto-selection, or cross-provider fallback. Automated verification uses a Fake Provider; a real Provider call remains a manual acceptance check and must use the user's locally stored key.
+Stage 09 originally established summary-draft generation. Stage 10 subsequently added review, export, and knowledge publication; Stage 11A adds local Published Knowledge retrieval. Embeddings, semantic RAG, agents, web search, provider auto-selection, and cross-provider fallback are still outside the current boundary.
