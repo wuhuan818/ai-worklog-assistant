@@ -39,3 +39,6 @@
 
 - Added local published-knowledge retrieval, Chinese CJK bigram normalization, ranked search API, Sidebar/Command Palette search, and safe managed-Markdown opening.
 - Added automatic index reconciliation and deterministic rebuild; no AI provider, secret, or external search service is used.
+# Stage 11B
+
+- Added separate embedding profiles, rebuildable SQLite semantic vectors, cosine semantic retrieval, RRF hybrid retrieval, lexical fallback, and single-turn grounded knowledge answers with citation validation.

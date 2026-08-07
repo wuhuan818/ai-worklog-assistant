@@ -34,3 +34,6 @@
 # Stage 11A: local knowledge retrieval
 
 Published knowledge can be searched from the AI Worklog Sidebar’s **搜索知识** button or the `AI Worklog: Search Knowledge Base` command. Search is local, works for Chinese/English terms, and opens the managed Markdown source. Embedding, semantic search, and AI RAG answers remain future work.
+# Stage 11B semantic knowledge answers
+
+Embedding profiles are configured separately from chat profiles. Without one, **问知识库** continues through local lexical retrieval; with an enabled profile, hybrid retrieval is available after indexing. Semantic indexing sends published knowledge to the user-configured embedding provider, while a question sends only retrieved published snippets to the configured chat provider.

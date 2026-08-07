@@ -62,3 +62,9 @@ Errors include `task_not_found`, `task_not_completed`, `invalid_build_config`, `
 # Knowledge retrieval (Stage 11A)
 
 `GET /knowledge/search?q=登录&limit=10&category=开发` searches only current published knowledge locally. `q` is required (1–200 characters); `limit` defaults to 10 and is capped at 50. Results contain a user-facing title/category/snippet plus stable rank, score, `source_ref` (`knowledge-publication:<id>`), safe logical publication path, and provenance IDs. No provider is called.
+# Stage 11B semantic and RAG APIs
+
+- `POST /knowledge/embedding/test`: fixed non-user test text; temporary embedding secret only.
+- `POST /knowledge/semantic-index/rebuild`: rebuilds vectors from published knowledge only.
+- `POST /knowledge/retrieve`: lexical, semantic, or hybrid retrieval; hybrid reports explicit lexical fallback.
+- `POST /knowledge/rag-answers`: one grounded answer from retrieved publications; citations are locally validated.
