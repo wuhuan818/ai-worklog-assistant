@@ -38,6 +38,10 @@
 根本原因是 `aiWorklog.sidebar` 只声明了 id/name，缺少 `type: "webview"`；代码实际使用 `registerWebviewViewProvider`，VS Code 因默认按 TreeView 处理而报告没有 TreeDataProvider。现已声明为 webview，并由 `Provider` 生成后端状态、任务状态、Bug 状态、开始任务和添加备注入口。VS Code 宿主 GUI 仍保持“待人工验证”，没有将其误报为自动通过。
 # Stage 11A verification addendum
 
+## Stage 11B verification addendum
+
+`python scripts/verify-semantic-rag.py` uses the local deterministic fake OpenAI-compatible provider and a disposable PyInstaller EXE. It verifies embedding-index creation, float-vector semantic retrieval, RRF hybrid mode, grounded RAG citation validation, and semantic retrieval after backend restart. No real API key or external provider is used.
+
 The current Stage 11A verifier is `python scripts/verify-knowledge-retrieval.py`. It runs against the real PyInstaller EXE with 1,002 synthetic publications. It proves `knowledge-retrieval-v1`, deterministic published-only reconciliation, Chinese `登录` title/body matching, English/mixed retrieval, category filtering, superseded exclusion, citation `knowledge-publication:<id>`, and restart persistence. It also records actual 100/1000 index and Top-K timings in its JSON output. No Provider, secret, prompt, or external network is involved.
 
 Latest local Windows run: 100-publication index rebuild **414.1 ms**; 1,000-publication rebuild **4162.1 ms**; packaged first start/reconcile **2119.7 ms**; restart **2089.3 ms**; Chinese query **114.2 ms**; 1,000-publication Top-K query **51.5 ms**. The verifier exited both owned EXE instances before deleting its temporary data directory.
