@@ -113,7 +113,9 @@ def test_approved_revision_exports_and_publishes_without_touching_summary(databa
     root = tmp_path / "knowledge"
     exported = publishing.export_summary(database, root, "task-1", "exported")
     daily = publishing.export_daily(database, root, "task-1", "exported")
+    preview = publishing.export_preview(database, "task-1", "task_summary")
     assert (root / exported["logical_path"]).read_text(encoding="utf-8").startswith("# Task")
+    assert preview["suggested_filename"].endswith("-summary.md") and preview["content"].startswith("# Task")
     assert (root / daily["logical_path"]).exists() and daily["kind"] == "daily_report"
     published = publishing.publish(database, root, "task-1", [{"candidate_index":0,"title":"Edited knowledge"}], "published")[0]
     assert (root / published["logical_path"]).exists() and published["title"] == "Edited knowledge"

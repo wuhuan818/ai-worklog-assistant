@@ -1,4 +1,4 @@
-import { ApiClient, AiGenerationJob, AiGenerationProfile, AiSummaryDraft, AiSummaryDraftContent, AiSummaryRevision, AiSummaryReview, KnowledgeCandidate, Publication } from '../../apiClient';
+import { ApiClient, AiGenerationJob, AiGenerationProfile, AiSummaryDraft, AiSummaryDraftContent, AiSummaryRevision, AiSummaryReview, ExportPreview, KnowledgeCandidate, Publication } from '../../apiClient';
 import { isTerminalGenerationStatus } from './types';
 
 export class GenerationClient {
@@ -15,6 +15,7 @@ export class GenerationClient {
   reject(taskId: string, draftId: string, revisionId: string | undefined, reason: string): Promise<AiSummaryReview> { return this.api.rejectAiSummaryContent(taskId, draftId, revisionId, reason); }
   exportSummary(taskId: string): Promise<Publication> { return this.api.exportApprovedSummary(taskId); }
   exportDaily(taskId: string): Promise<Publication> { return this.api.exportApprovedDailyReport(taskId); }
+  previewExport(taskId: string, kind: ExportPreview['kind']): Promise<ExportPreview> { return this.api.previewApprovedExport(taskId, kind); }
   candidates(taskId: string): Promise<KnowledgeCandidate[]> { return this.api.knowledgeCandidates(taskId); }
   publishKnowledge(taskId: string, items: KnowledgeCandidate[]): Promise<{ items: Publication[] }> { return this.api.publishKnowledge(taskId, items); }
   async wait(jobId: string, onUpdate?: (job: AiGenerationJob) => void, signal?: AbortSignal): Promise<AiGenerationJob> {

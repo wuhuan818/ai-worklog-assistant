@@ -22,6 +22,10 @@ def export_summary(task_id:str,authorization:Optional[str]=Header(None)):
 def export_daily(task_id:str,authorization:Optional[str]=Header(None)):
     from app import main
     main.auth(authorization); return call(lambda:service.export_daily(main.db(),main.KNOWLEDGE,task_id,main.now()))
+@router.get('/tasks/{task_id}/ai/exports/{kind}/preview')
+def export_preview(task_id:str,kind:str,authorization:Optional[str]=Header(None)):
+    from app import main
+    main.auth(authorization); return call(lambda:service.export_preview(main.db(),task_id,kind))
 @router.get('/tasks/{task_id}/ai/knowledge-candidates')
 def knowledge_candidates(task_id:str,authorization:Optional[str]=Header(None)):
     from app import main

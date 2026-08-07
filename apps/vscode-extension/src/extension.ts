@@ -256,7 +256,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.restartServer', () => run(async () => { await server.restart(); vscode.window.showInformationMessage('本地后端已重启'); })));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.showLogs', () => output.show(true)));
     registerContextCommands(context, { api: () => ensureServer(server), configuration: () => vscode.workspace.getConfiguration('aiWorklog').get<number>('aiContext.estimatedInputTokenBudget', 32000) });
-    registerGenerationCommands(context, { api: () => ensureServer(server), profiles: aiProfiles, onStatus: job => providerView?.publishGenerationState(job), log: message => logger.appendLine(message) });
+    registerGenerationCommands(context, { api: () => ensureServer(server), profiles: aiProfiles, managedKnowledgeRoot: () => vscode.Uri.file(path.join(server.dataDir, 'knowledge')), onStatus: job => providerView?.publishGenerationState(job), log: message => logger.appendLine(message) });
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.configureAiProvider', () => run(() => configureAi(aiProfiles))));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.switchAiProvider', () => run(async () => { const selected = await promptPick(aiProfiles.profiles().map(profile => ({ label: profile.displayName, description: profile.provider, profile })), { title: '切换 AI Provider' }); if (selected.kind !== 'cancelled') await aiProfiles.select(selected.value.profile.id); })));
     context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.testAiConnection', () => testAi(aiProfiles, server, aiConnection)));

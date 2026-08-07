@@ -50,6 +50,12 @@ def export_summary(c:sqlite3.Connection,root:Path,task_id:str,timestamp:str)->di
     revision=_approved(c,task_id); task=_task(c,task_id); return _export(c,root,task,revision,'task_summary',f'projects/{_safe(task.get("slug") or "project")}/task-records/{task_id}.md',summary_markdown(revision['content'],task['name']),timestamp)
 def export_daily(c:sqlite3.Connection,root:Path,task_id:str,timestamp:str)->dict[str,Any]:
     revision=_approved(c,task_id); task=_task(c,task_id); return _export(c,root,task,revision,'daily_report',f'daily-records/{datetime.now(timezone.utc).date().isoformat()}/{task_id}.md',daily_markdown(revision['content'],task),timestamp)
+def export_preview(c:sqlite3.Connection,task_id:str,kind:str)->dict[str,Any]:
+    revision=_approved(c,task_id); task=_task(c,task_id); name=_safe(task['name'])
+    if kind == 'task_summary': content=summary_markdown(revision['content'],task['name']); filename=f'{name}-summary.md'
+    elif kind == 'daily_report': content=daily_markdown(revision['content'],task); filename=f'{datetime.now(timezone.utc).date().isoformat()}-{name}-daily-report.md'
+    else: raise PublishingError('export_kind_invalid','Export kind is invalid')
+    return {'kind':kind,'revision_id':revision['id'],'suggested_filename':filename,'content_hash':_hash(content),'content':content}
 def candidates(c:sqlite3.Connection,task_id:str)->list[dict[str,Any]]:
     revision=_approved(c,task_id); return [{'candidate_index':i,**x} for i,x in enumerate(revision['content']['sections']['knowledge_candidates'])]
 def publish(c:sqlite3.Connection,root:Path,task_id:str,items:list[dict[str,Any]],timestamp:str)->list[dict[str,Any]]:
