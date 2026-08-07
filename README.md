@@ -31,3 +31,6 @@
 ## 限制
 
 终端 Shell Integration、真实模型、语义检索、飞书、离线队列和 VS Code 宿主的真实生命周期仍分别按 `docs/KNOWN_LIMITATIONS.md` 标注处理。
+# Stage 11A: local knowledge retrieval
+
+Published knowledge can be searched from the AI Worklog Sidebar’s **搜索知识** button or the `AI Worklog: Search Knowledge Base` command. Search is local, works for Chinese/English terms, and opens the managed Markdown source. Embedding, semantic search, and AI RAG answers remain future work.

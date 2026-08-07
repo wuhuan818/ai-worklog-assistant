@@ -26,6 +26,7 @@ export interface AiSummaryRevision { id: string; task_id: string; draft_id: stri
 export interface AiSummaryReview { id: string; task_id: string; draft_id: string; revision_id?: string | null; status: 'pending' | 'approved' | 'rejected'; rejection_reason?: string | null; superseded_at?: string | null; created_at: string; }
 export interface Publication { id: string; task_id: string; revision_id: string; logical_path: string; status: string; published_at: string; title?: string; category?: string; candidate_index?: number; }
 export interface KnowledgeCandidate { candidate_index: number; title: string; category: string; summary: string; why_reusable: string; }
+export interface KnowledgeSearchResult { publication_id: string; title: string; category: string; snippet: string; score: number; rank: number; published_at: string; source_ref: string; task_id: string; revision_id: string; logical_path: string; }
 export interface ExportPreview { kind: 'task_summary' | 'daily_report'; revision_id: string; suggested_filename: string; content_hash: string; content: string; }
 export interface BackendHealth { status: string; service: string; api_version?: string; features?: string[]; build_commit?: string; }
 
@@ -109,5 +110,6 @@ export class ApiClient {
   previewApprovedExport(taskId: string, kind: ExportPreview['kind']): Promise<ExportPreview> { return this.request(`/tasks/${taskId}/ai/exports/${kind}/preview`); }
   knowledgeCandidates(taskId: string): Promise<KnowledgeCandidate[]> { return this.request<{ items: KnowledgeCandidate[] }>(`/tasks/${taskId}/ai/knowledge-candidates`).then(value => value.items); }
   publishKnowledge(taskId: string, items: KnowledgeCandidate[]): Promise<{ items: Publication[] }> { return this.request(`/tasks/${taskId}/ai/knowledge-publications`, { method: 'POST', body: JSON.stringify({ items }) }); }
+  searchKnowledge(q: string, limit = 10, category?: string): Promise<{ items: KnowledgeSearchResult[] }> { const params = new URLSearchParams({ q, limit: String(limit), ...(category ? { category } : {}) }); return this.request(`/knowledge/search?${params}`); }
   testAiConnection(input: { provider: string; base_url: string; model: string; api_key: string; thinking_enabled: boolean; timeout_seconds: number; max_output_tokens: number }): Promise<AiConnectionResult> { return this.request('/ai/providers/test-connection', { method: 'POST', body: JSON.stringify(input) }); }
 }

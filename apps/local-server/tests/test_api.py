@@ -38,8 +38,9 @@ def test_health_check(client):
     assert response.status_code == 200
     health = response.json()
     assert health['status'] == 'ok' and health['service'] == 'local-server'
-    assert health['api_version'] == 'stage-09'
+    assert health['api_version'] == 'stage-11a'
     assert 'ai-summary-generation-v1' in health['features']
+    assert 'knowledge-retrieval-v1' in health['features']
 
 
 def test_openapi_exposes_stage09_summary_generation_routes(client):
@@ -49,6 +50,7 @@ def test_openapi_exposes_stage09_summary_generation_routes(client):
     assert '/ai/generation-jobs/{job_id}/cancel' in paths
     assert '/tasks/{task_id}/ai/summary-drafts' in paths
     assert '/ai/summary-drafts/{draft_id}' in paths
+    assert '/knowledge/search' in paths
 
 
 def test_session_token_is_required(client):
@@ -146,8 +148,10 @@ def test_mock_summary_update_confirm_markdown_and_search(client, headers):
     confirmed = client.post('/summaries/%s/confirm' % draft['id'], headers=headers)
     assert confirmed.json() == {'ok': True, 'status': 'confirmed'}
     assert list(main.KNOWLEDGE.rglob('*.md'))
+    # Stage 11A deliberately searches only formal published knowledge, never
+    # legacy summary drafts/confirmations.
     hits = client.get('/knowledge/search?q=Reviewed', headers=headers).json()
-    assert hits and 'Reviewed verification summary' in hits[0]['content']
+    assert hits['items'] == []
     assert client.get('/tasks/%s' % task['id'], headers=headers).json()['status'] == 'confirmed'
 
 

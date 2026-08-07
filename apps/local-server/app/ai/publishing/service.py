@@ -69,4 +69,6 @@ def publish(c:sqlite3.Connection,root:Path,task_id:str,items:list[dict[str,Any]]
         body=f'# {value["title"]}\n\n分类：{value["category"]}\n\n{value["summary"]}\n\n## 可复用说明\n\n{value["why_reusable"]}\n'; digest=_hash(body); old=c.execute('SELECT * FROM knowledge_publications WHERE revision_id=? AND candidate_index=? AND content_hash=?',(revision['id'],index,digest)).fetchone()
         if old: result.append(dict(old)); continue
         ident=str(uuid.uuid4()); logical=f'published/{_safe(value["category"])}/{ident}.md'; _write(root,logical,body); c.execute("UPDATE knowledge_publications SET status='superseded',superseded_at=?,updated_at=? WHERE revision_id=? AND candidate_index=? AND status='published'",(timestamp,timestamp,revision['id'],index)); c.execute('INSERT INTO knowledge_publications VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(ident,task_id,revision['id'],index,value['title'],value['category'],value['summary'],value['why_reusable'],logical,digest,'published',timestamp,timestamp,timestamp,None)); result.append(dict(c.execute('SELECT * FROM knowledge_publications WHERE id=?',(ident,)).fetchone()))
+    from app.ai.retrieval.service import index_publications
+    index_publications(c, [item['id'] for item in result])
     return result

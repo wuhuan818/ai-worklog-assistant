@@ -35,3 +35,6 @@ Provider profiles are not SQLite entities. Non-secret profile metadata is kept i
 ## Stage 08 context package persistence
 
 `ai_context_packages` stores immutable sanitized Context Package versions: ID, schema version, project/task IDs, status, non-sensitive build-config JSON, sanitized context JSON, content hash, estimated token/redaction/truncation counts, lifecycle timestamps and idempotency key. Status is `preview`, `ready`, `superseded`, or `invalid`. SQLite enforces one Ready package per task and the Ready transition supersedes the previous version transactionally. No raw input snapshot, API key, Authorization header, Provider response or prompt is stored.
+# Stage 11A retrieval index
+
+`knowledge_search_index` is an additive local SQLite table rebuilt solely from `knowledge_publications WHERE status='published'`. It holds normalized searchable title/category/summary/reusable reason and the minimum provenance fields: publication, task, revision, publication time, content hash, and logical path. It intentionally has no prompt, provider response, secret, reasoning, or absolute path.

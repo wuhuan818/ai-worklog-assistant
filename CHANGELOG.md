@@ -35,3 +35,7 @@
 - 插件当前不会自动管理 PyInstaller 后端子进程。
 - 真实模型、完整终端输出、精确 Diff、Embedding/RAG 和飞书同步尚未完成。
 - Webview 审核界面目前使用可编辑 JSON 文本。
+# Stage 11A
+
+- Added local published-knowledge retrieval, Chinese CJK bigram normalization, ranked search API, Sidebar/Command Palette search, and safe managed-Markdown opening.
+- Added automatic index reconciliation and deterministic rebuild; no AI provider, secret, or external search service is used.
