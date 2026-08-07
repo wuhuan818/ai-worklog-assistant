@@ -1,3 +1,7 @@
 $ErrorActionPreference='Stop'
 & "$PSScriptRoot\build-extension.ps1"
-if (Get-Command npx.cmd -ErrorAction SilentlyContinue) { Push-Location apps/vscode-extension; npx.cmd @vscode/vsce package; Pop-Location }
+Push-Location (Join-Path $PSScriptRoot '..\apps\vscode-extension')
+try {
+  npx.cmd --no-install @vscode/vsce package
+  if ($LASTEXITCODE -ne 0) { throw 'VSIX packaging failed. Run npm.cmd ci in apps/vscode-extension first.' }
+} finally { Pop-Location }
