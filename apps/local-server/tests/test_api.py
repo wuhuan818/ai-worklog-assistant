@@ -38,7 +38,7 @@ def test_health_check(client):
     assert response.status_code == 200
     health = response.json()
     assert health['status'] == 'ok' and health['service'] == 'local-server'
-    assert health['api_version'] == 'stage-11a'
+    assert health['api_version'] == 'stage-11b'
     assert 'ai-summary-generation-v1' in health['features']
     assert 'knowledge-retrieval-v1' in health['features']
 

@@ -18,7 +18,7 @@ HOST = os.getenv('WORKLOG_HOST', '127.0.0.1')
 PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
-API_VERSION = 'stage-11a'
+API_VERSION = 'stage-11b'
 FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1', 'semantic-retrieval-v1', 'rag-answer-v1']
 BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
 app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
