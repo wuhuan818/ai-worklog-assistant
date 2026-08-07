@@ -1,4 +1,4 @@
-import { ApiClient, AiGenerationJob, AiGenerationProfile, AiSummaryDraft, AiSummaryDraftContent, AiSummaryRevision, AiSummaryReview } from '../../apiClient';
+import { ApiClient, AiGenerationJob, AiGenerationProfile, AiSummaryDraft, AiSummaryDraftContent, AiSummaryRevision, AiSummaryReview, KnowledgeCandidate, Publication } from '../../apiClient';
 import { isTerminalGenerationStatus } from './types';
 
 export class GenerationClient {
@@ -13,6 +13,10 @@ export class GenerationClient {
   saveRevision(taskId: string, draftId: string, content: AiSummaryDraftContent, key: string): Promise<AiSummaryRevision> { return this.api.saveAiSummaryRevision(taskId, draftId, content, key); }
   approve(taskId: string, draftId: string, revisionId: string): Promise<AiSummaryReview> { return this.api.approveAiSummaryRevision(taskId, draftId, revisionId); }
   reject(taskId: string, draftId: string, revisionId: string | undefined, reason: string): Promise<AiSummaryReview> { return this.api.rejectAiSummaryContent(taskId, draftId, revisionId, reason); }
+  exportSummary(taskId: string): Promise<Publication> { return this.api.exportApprovedSummary(taskId); }
+  exportDaily(taskId: string): Promise<Publication> { return this.api.exportApprovedDailyReport(taskId); }
+  candidates(taskId: string): Promise<KnowledgeCandidate[]> { return this.api.knowledgeCandidates(taskId); }
+  publishKnowledge(taskId: string, items: KnowledgeCandidate[]): Promise<{ items: Publication[] }> { return this.api.publishKnowledge(taskId, items); }
   async wait(jobId: string, onUpdate?: (job: AiGenerationJob) => void, signal?: AbortSignal): Promise<AiGenerationJob> {
     const deadline = Date.now() + this.maxWaitMs;
     for (;;) {

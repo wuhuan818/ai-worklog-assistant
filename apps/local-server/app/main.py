@@ -19,13 +19,15 @@ PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 API_VERSION = 'stage-09'
-FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1']
+FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1']
 BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
 app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
 from app.ai.router import router as ai_router
 app.include_router(ai_router)
 from app.ai.generation.router import router as generation_router
 app.include_router(generation_router)
+from app.ai.publishing.router import router as publishing_router
+app.include_router(publishing_router)
 
 def now() -> str: return datetime.now(timezone.utc).isoformat()
 def normalize_workspace(value: Optional[str]) -> str:

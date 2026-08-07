@@ -58,6 +58,22 @@ def ensure_schema(c: sqlite3.Connection) -> None:
         ON ai_summary_reviews(task_id, created_at DESC, id DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS ux_ai_summary_reviews_current_approved
         ON ai_summary_reviews(task_id) WHERE status='approved' AND superseded_at IS NULL;
+      CREATE TABLE IF NOT EXISTS summary_export_publications(
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, revision_id TEXT NOT NULL,
+        kind TEXT NOT NULL, logical_path TEXT NOT NULL, content_hash TEXT NOT NULL,
+        status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        published_at TEXT NOT NULL, superseded_at TEXT, UNIQUE(task_id, revision_id, kind)
+      );
+      CREATE INDEX IF NOT EXISTS ix_summary_export_task_kind ON summary_export_publications(task_id, kind, published_at DESC);
+      CREATE TABLE IF NOT EXISTS knowledge_publications(
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, revision_id TEXT NOT NULL,
+        candidate_index INTEGER NOT NULL, title TEXT NOT NULL, category TEXT NOT NULL,
+        summary TEXT NOT NULL, why_reusable TEXT NOT NULL, logical_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL, published_at TEXT NOT NULL, superseded_at TEXT,
+        UNIQUE(revision_id, candidate_index, content_hash)
+      );
+      CREATE INDEX IF NOT EXISTS ix_knowledge_publications_task ON knowledge_publications(task_id, published_at DESC);
     """)
 
 

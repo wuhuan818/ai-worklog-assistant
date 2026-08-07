@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import app.main as main
 from app.ai.generation import repository, service
+from app.ai.publishing import service as publishing
 
 
 def ready_context(c, context_id="context-1", task_id="task-1"):
@@ -99,3 +100,26 @@ def test_revisions_are_immutable_validated_and_reviews_are_transactional(databas
     rejected = service.reject_content(database, "task-1", draft["id"], first["id"], "needs more detail", "six")
     assert rejected["status"] == "rejected" and len(repository.review_history(database, "task-1")) == 3
     assert repository.get_draft(database, draft["id"])["content"]["sections"]["task_summary"]["summary"] == "done"
+
+
+def test_approved_revision_exports_and_publishes_without_touching_summary(database, tmp_path):
+    job, _ = service.create_job(database, "context-1", profile(), "publish", "now")
+    content = valid_content(); content["sections"]["knowledge_candidates"] = [{"title":"Reusable fix","category":"engineering","summary":"Use validation","why_reusable":"Prevents regressions","evidence_refs":[]}]
+    async def generator(**kwargs): return {"content": content}
+    asyncio.run(service.run_job(lambda: database, job["id"], profile(), "secret", generator, lambda: "later"))
+    draft = repository.list_drafts(database, "task-1")[0]
+    revision = service.create_revision(database, "task-1", draft["id"], content, "user_edit", "later", "pub-key")
+    service.approve_revision(database, "task-1", draft["id"], revision["id"], "approved")
+    root = tmp_path / "knowledge"
+    exported = publishing.export_summary(database, root, "task-1", "exported")
+    daily = publishing.export_daily(database, root, "task-1", "exported")
+    assert (root / exported["logical_path"]).read_text(encoding="utf-8").startswith("# Task")
+    assert (root / daily["logical_path"]).exists() and daily["kind"] == "daily_report"
+    published = publishing.publish(database, root, "task-1", [{"candidate_index":0,"title":"Edited knowledge"}], "published")[0]
+    assert (root / published["logical_path"]).exists() and published["title"] == "Edited knowledge"
+    assert repository.get_revision(database, revision["id"])["content"]["sections"]["knowledge_candidates"][0]["title"] == "Reusable fix"
+
+
+def test_export_rejects_tasks_without_approved_revision(database, tmp_path):
+    with pytest.raises(publishing.PublishingError) as error: publishing.export_summary(database, tmp_path, "task-1", "now")
+    assert error.value.code == "approved_revision_required"
