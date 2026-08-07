@@ -19,7 +19,7 @@ PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 API_VERSION = 'stage-11a'
-FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1']
+FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1', 'semantic-retrieval-v1', 'rag-answer-v1']
 BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
 app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
 from app.ai.router import router as ai_router
@@ -30,6 +30,8 @@ from app.ai.publishing.router import router as publishing_router
 app.include_router(publishing_router)
 from app.ai.retrieval.router import router as retrieval_router
 app.include_router(retrieval_router)
+from app.ai.semantic.router import router as semantic_router
+app.include_router(semantic_router)
 
 def now() -> str: return datetime.now(timezone.utc).isoformat()
 def normalize_workspace(value: Optional[str]) -> str:
@@ -61,6 +63,8 @@ def db():
     from app.ai.retrieval.service import ensure_schema as ensure_retrieval_schema, reconcile as reconcile_retrieval
     ensure_retrieval_schema(c)
     reconcile_retrieval(c)
+    from app.ai.semantic.service import ensure_schema as ensure_semantic_schema
+    ensure_semantic_schema(c)
     def add_column(table: str, column: str, declaration: str):
         columns = {row['name'] for row in c.execute(f'PRAGMA table_info({table})')}
         if column not in columns: c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {declaration}')
