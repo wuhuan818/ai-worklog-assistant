@@ -34,3 +34,12 @@ export class AiProfileStore {
   async delete(id: string): Promise<void> { await this.clearKey(id); await this.state.update(PROFILES_KEY, this.profiles().filter(profile => profile.id !== id)); if (this.current()?.id === id) await this.select(undefined); }
   key(id: string): Thenable<string | undefined> { return this.secrets.get(secretKey(id)); }
 }
+export interface EmbeddingProfile { id:string; name:string; kind:'qwen'|'openai-compatible'; baseUrl:string; model:string; dimensions?:number; timeoutSeconds:number; enabled:boolean; }
+const EMBEDDING_KEY='aiWorklog.embedding.profile'; const embeddingSecretKey=(id:string)=>`aiWorklog.embedding.${id}.apiKey`;
+export class EmbeddingProfileStore {
+  constructor(private readonly state:vscode.Memento,private readonly secrets:vscode.SecretStorage){}
+  current():EmbeddingProfile|undefined{return this.state.get<EmbeddingProfile>(EMBEDDING_KEY);}
+  async save(profile:EmbeddingProfile,key?:string):Promise<void>{await this.state.update(EMBEDDING_KEY,profile);if(key)await this.secrets.store(embeddingSecretKey(profile.id),key);}
+  key(id:string):Thenable<string|undefined>{return this.secrets.get(embeddingSecretKey(id));}
+  async clear():Promise<void>{const current=this.current();if(current)await this.secrets.delete(embeddingSecretKey(current.id));await this.state.update(EMBEDDING_KEY,undefined);}
+}

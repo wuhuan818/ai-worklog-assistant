@@ -58,6 +58,10 @@
                                              "command":  "aiWorklog.searchKnowledge",
                                              "title":  "AI Worklog: Search Knowledge Base"
                                          },
+                                         { "command": "aiWorklog.askKnowledge", "title": "AI Worklog: 问知识库" },
+                                         { "command": "aiWorklog.configureEmbedding", "title": "AI Worklog: 配置 Embedding Provider" },
+                                         { "command": "aiWorklog.testEmbedding", "title": "AI Worklog: 测试 Embedding 连接" },
+                                         { "command": "aiWorklog.rebuildSemanticIndex", "title": "AI Worklog: 重建语义索引" },
                                          {
                                              "command":  "aiWorklog.restartServer",
                                              "title":  "AI Worklog: Restart Local Server"
