@@ -66,7 +66,7 @@ try {
   $stored = Invoke-Stage08Json GET "/ai/context-packages/$contextId" $null $headers
   $storedRaw = $stored | ConvertTo-Json -Depth 100 -Compress
   Assert-Stage08 'persisted-sanitized' (-not $storedRaw.Contains($syntheticSecret))
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline; $rootPid = 0
+  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline; $rootPid = 0
   $residual = @((Get-BackendPidsByPath -ExecutablePath $exe) | Where-Object { $_ -notin $baseline }).Count
   Assert-Stage08 'owned-backend-cleanup' ($residual -eq 0)
   $report = [ordered]@{ status='passed'; schemaVersion='task-context-package/v1'; contextBuildPassed=$true; deterministicBuildPassed=$true; redactionPassed=$true; sensitiveFileExclusionPassed=$true; absolutePathRemovalPassed=$true; budgetingPassed=$true; truncationReportingPassed=$true; provenancePassed=$true; previewPanelPassed=$false; readyLifecyclePassed=$true; externalNetworkRequestCount=0; providerApiCallCount=0; apiKeyReadCount=0; rawSecretLeakCount=0; authorizationLeakCount=0; absoluteUserPathLeakCount=0; residualOwnedBackendCount=$residual; durationSeconds=[math]::Round(([DateTime]::UtcNow-$started).TotalSeconds,2); inheritedKnownValidationGaps=@('stage 7.1 reload window direct automation','stage 7.1 startup orphan cleanup direct integration evidence') }
@@ -76,6 +76,6 @@ try {
   Write-Error "STAGE08_CONTEXT_VERIFICATION=FAIL: $($_.Exception.Message)"
   exit 1
 } finally {
-  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline } catch {} }
+  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline } catch {} }
   if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

@@ -13,6 +13,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from backend_lifecycle import assert_owned_backend_exited, start_owned_backend, stop_owned_backend
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXE = ROOT / "artifacts" / "backend" / "ai-worklog-server.exe"
@@ -32,22 +34,20 @@ def request(url: str, token: str) -> dict:
 def start(data_dir: Path, token: str, listen_port: int) -> tuple[subprocess.Popen, float]:
     environment = {**os.environ, "AI_WORKLOG_DATA_DIR": str(data_dir), "WORKLOG_DB": str(data_dir / "worklog.db"), "WORKLOG_KNOWLEDGE": str(data_dir / "knowledge"), "WORKLOG_PORT": str(listen_port), "WORKLOG_SESSION_TOKEN": token}
     began = time.perf_counter()
-    process = subprocess.Popen([str(EXE)], cwd=ROOT, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = start_owned_backend(EXE, environment=environment, cwd=ROOT)
     for _ in range(60):
         try:
             request(f"http://127.0.0.1:{listen_port}/health", token)
             return process, (time.perf_counter() - began) * 1000
         except Exception:
             time.sleep(0.25)
-    process.terminate()
+    stop_owned_backend(process, port=listen_port, token=token)
     raise RuntimeError("packaged backend did not become healthy")
 
 
-def stop(process: subprocess.Popen) -> None:
-    if process.poll() is None:
-        process.terminate()
-        try: process.wait(timeout=8)
-        except subprocess.TimeoutExpired: process.kill()
+def stop(process: subprocess.Popen, listen_port: int, token: str) -> None:
+    stop_owned_backend(process, port=listen_port, token=token)
+    assert_owned_backend_exited(process)
 
 
 def main() -> None:
@@ -87,12 +87,12 @@ def main() -> None:
             assert english[0]["publication_id"] == "published-login" and filtered[0]["publication_id"] == "published-vscode"
             assert all(item["publication_id"] != "superseded-login" for item in chinese)
             assert len(performance) == 10
-        finally: stop(process)
+        finally: stop(process, first_port, token)
         second_port = port(); process, restart_ms = start(data_dir, token, second_port)
         try:
             restored = request(f"http://127.0.0.1:{second_port}/knowledge/search?q={urllib.parse.quote('登录')}", token)["items"]
             assert restored[0]["publication_id"] == "published-login"
-        finally: stop(process)
+        finally: stop(process, second_port, token)
         print(json.dumps({"status": "PASS", "feature": "knowledge-retrieval-v1", "publications": 1002, "index_100_ms": round(index_100_ms, 1), "index_1000_ms": round(index_1000_ms, 1), "first_start_and_reconcile_ms": round(first_start_ms, 1), "restart_ms": round(restart_ms, 1), "chinese_query_ms": round(chinese_ms, 1), "top_k_query_1000_ms": round(performance_ms, 1), "chinese_title": chinese[0]["title"], "restart_result": restored[0]["publication_id"]}, ensure_ascii=False))
 
 

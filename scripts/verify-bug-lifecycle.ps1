@@ -76,7 +76,7 @@ try {
   Pass 'REOPEN_B' ($reopened.status -eq 'open')
   $null = PostJson "http://127.0.0.1:$port/tasks/$taskId/bugs/$($bugB.id)/activate" @{} $headers
 
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline; $rootPid = 0
+  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline; $rootPid = 0
   $rootPid = Start-TestBackend -ExecutablePath $exe -DataDir $dataDir -Token $token -Port $port -Stage 'bug-restart'
   Wait-BackendHealthy -Port $port -RootPid $rootPid -TimeoutSeconds 15 -Stage 'bug-restart'
   $current = Invoke-RestMethod "http://127.0.0.1:$port/tasks/$taskId/bugs/current" -Headers $headers -TimeoutSec 10
@@ -109,6 +109,6 @@ assert con.execute("select count(*) from bugs where task_id=? and status='active
   Write-Error "BUG_LIFECYCLE=FAIL: $($_.Exception.Message)"
   exit 1
 } finally {
-  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline } catch {} }
+  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline } catch {} }
   if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

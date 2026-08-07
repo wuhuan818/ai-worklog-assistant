@@ -26,6 +26,7 @@ try {
   Write-Output 'BACKEND_MULTI_INSTANCE_ISOLATION=PASS'
 } catch { Write-Error "BACKEND_MULTI_INSTANCE_ISOLATION=FAIL: $($_.Exception.Message)"; exit 1 }
 finally {
-  foreach ($ownedPid in @($pidA,$pidB)) { if ($ownedPid -gt 0) { try { & taskkill.exe /PID $ownedPid /T /F *> $null } catch { } } }
+  if ($pidA -gt 0) { try { Stop-TestBackendTree -RootPid $pidA -TimeoutSeconds 10 -Port $portA -ExecutablePath $exe -Token $tokenA -ProtectedPids $baseline | Out-Null } catch {} }
+  if ($pidB -gt 0) { try { Stop-TestBackendTree -RootPid $pidB -TimeoutSeconds 10 -Port $portB -ExecutablePath $exe -Token $tokenB -ProtectedPids $baseline | Out-Null } catch {} }
   Remove-Item -LiteralPath $rootDir -Recurse -Force -ErrorAction SilentlyContinue
 }

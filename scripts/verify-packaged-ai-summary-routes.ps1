@@ -21,6 +21,6 @@ try {
   foreach ($route in $required) { if ($paths -notcontains $route) { throw "Missing Stage 09 packaged route: $route" } }
   Write-Output 'PACKAGED_STAGE09_ROUTES=PASS'
 } finally {
-  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline | Out-Null } catch {} }
+  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline | Out-Null } catch {} }
   if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

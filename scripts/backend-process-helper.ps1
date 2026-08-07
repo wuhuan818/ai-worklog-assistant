@@ -39,24 +39,29 @@ function Wait-BackendProcessTreeExit([int]$RootPid, [int]$TimeoutSeconds, [strin
   return $false
 }
 
-function Stop-TestBackendTree([int]$RootPid, [int]$TimeoutSeconds, [string]$Port, [string]$ExecutablePath, [int[]]$ProtectedPids = @()) {
+function Stop-TestBackendTree([int]$RootPid, [int]$TimeoutSeconds, [string]$Port, [string]$ExecutablePath, [string]$Token = '', [int[]]$ProtectedPids = @()) {
   if ($RootPid -le 0) { return $true }
   Write-BackendTrace -Stage 'stop-before' -RootPid $RootPid -Port $Port
-  $ErrorActionPreference = 'Continue'
-  & taskkill.exe /PID $RootPid /T /F *> $null
-  $killExit = $LASTEXITCODE
-  $ErrorActionPreference = 'Stop'
-  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-  do {
-    $remaining = @()
-    if ($ExecutablePath) { $remaining = @(Get-BackendPidsByPath -ExecutablePath $ExecutablePath | Where-Object { $ProtectedPids -notcontains $_ }) }
-    if ($remaining.Count -eq 0) { break }
-    foreach ($candidatePid in $remaining) { Stop-Process -Id $candidatePid -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 200
-  } while ((Get-Date) -lt $deadline)
-  $remaining = if ($ExecutablePath) { @(Get-BackendPidsByPath -ExecutablePath $ExecutablePath | Where-Object { $ProtectedPids -notcontains $_ }) } else { @(Get-BackendProcessTree -RootPid $RootPid) }
-  if ($remaining.Count -ne 0) { throw "backend process tree did not exit within ${TimeoutSeconds}s (root PID $RootPid, taskkill exit $killExit, remaining $($remaining -join ','))" }
-  Write-Output "PROCESS_TREE_STOP=PASS root=$RootPid"
+  # The verifier owns only RootPid. Never scan and kill every process that
+  # happens to use the same EXE path; pre-existing instances are deliberately
+  # protected by the ownership boundary.
+  $owned = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
+  if ($null -eq $owned) { Write-Output "PROCESS_TREE_STOP=PASS root=$RootPid outcome=already-exited"; return $true }
+  if ($ExecutablePath -and $owned.Path -ne $ExecutablePath) { throw "owned PID $RootPid executable identity changed" }
+  $outcome = 'graceful'
+  if ($Token) {
+    try { Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $Token" } -ContentType 'application/json' -Body '{"generation":0}' -Uri "http://127.0.0.1:$Port/runtime/shutdown" -TimeoutSec 2 | Out-Null } catch { $outcome = 'shutdown-unavailable' }
+  } else { $outcome = 'no-token' }
+  if (-not (Wait-BackendProcessTreeExit -RootPid $RootPid -TimeoutSeconds ([Math]::Min(5, $TimeoutSeconds)) -Port $Port)) {
+    $outcome = 'terminate'
+    Stop-Process -Id $RootPid -ErrorAction SilentlyContinue
+    if (-not (Wait-BackendProcessTreeExit -RootPid $RootPid -TimeoutSeconds ([Math]::Min(3, $TimeoutSeconds)) -Port $Port)) {
+      $outcome = 'kill'
+      Stop-Process -Id $RootPid -Force -ErrorAction SilentlyContinue
+      if (-not (Wait-BackendProcessTreeExit -RootPid $RootPid -TimeoutSeconds $TimeoutSeconds -Port $Port)) { throw "owned backend process tree did not exit (root PID $RootPid)" }
+    }
+  }
+  Write-Output "PROCESS_TREE_STOP=PASS root=$RootPid outcome=$outcome"
   return $true
 }
 
@@ -75,6 +80,9 @@ function Start-TestBackend([string]$ExecutablePath, [string]$DataDir, [string]$T
   $env:WORKLOG_DATA_DIR = $DataDir
   $env:WORKLOG_SESSION_TOKEN = $Token
   $env:WORKLOG_PORT = [string]$Port
+  # If this verifier is interrupted, the backend watchdog observes its owner
+  # exit and shuts down instead of becoming a detached packaged EXE.
+  $env:WORKLOG_EXTENSION_HOST_PID = [string]$PID
   $started = Start-Process -FilePath $ExecutablePath -WorkingDirectory (Split-Path -Parent $ExecutablePath) -PassThru -WindowStyle Hidden
   Write-Host "START_BACKEND=PASS stage=$Stage root=$($started.Id) port=$Port data=$DataDir"
   return $started.Id

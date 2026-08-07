@@ -20,10 +20,10 @@ try {
   $second = PostJson "http://127.0.0.1:$port/tasks/$taskId/events/batch" @{events=$events} $h; Pass 'IDEMPOTENCY' ($second.inserted -eq 0 -and $second.duplicates -eq 8)
   $list = Invoke-RestMethod "http://127.0.0.1:$port/tasks/$taskId/events?limit=20" -Headers $h -TimeoutSec 10; Pass 'QUERY' ($list.total -eq 8 -and $list.items.Count -eq 8)
   $summary = Invoke-RestMethod "http://127.0.0.1:$port/tasks/$taskId/events/summary" -Headers $h -TimeoutSec 10; Pass 'SUMMARY' ($summary.total -eq 8 -and $summary.by_type.manual_note -eq 1)
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline; $rootPid=0
+  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline; $rootPid=0
   $rootPid = Start-TestBackend -ExecutablePath $exe -DataDir $dataDir -Token $token -Port $port -Stage 'restart'; Wait-BackendHealthy -Port $port -RootPid $rootPid -TimeoutSeconds 15 -Stage 'restart'
   $recovered = Invoke-RestMethod "http://127.0.0.1:$port/tasks/$taskId/events/summary" -Headers $h -TimeoutSec 10; Pass 'RESTART_RECOVERY' ($recovered.total -eq 8)
   $ended = Invoke-RestMethod "http://127.0.0.1:$port/tasks/$taskId/end" -Method Post -Headers $h -TimeoutSec 10; Pass 'END_TASK' ($ended.status -eq 'completed')
   try { PostJson "http://127.0.0.1:$port/tasks/$taskId/events/batch" @{events=$events[0..0]} $h; throw 'expected 409' } catch { Pass 'COMPLETED_REJECTS' ($_.Exception.Response.StatusCode.value__ -eq 409) }
   Write-Output 'EVENT_CAPTURE=PASS'
-} catch { Write-Error "EVENT_CAPTURE=FAIL: $($_.Exception.Message)"; exit 1 } finally { if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline } catch {} }; if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue } }
+} catch { Write-Error "EVENT_CAPTURE=FAIL: $($_.Exception.Message)"; exit 1 } finally { if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline } catch {} }; if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue } }

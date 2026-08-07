@@ -27,7 +27,7 @@ try {
   $taskId = $task.id; $startedAt = $task.started_at; Pass 'START_TASK' ($task.status -eq 'active')
   $active = Invoke-RestMethod "http://127.0.0.1:$port/tasks/active" -Headers $headers -TimeoutSec 10; Pass 'ACTIVE_TASK' ($active.task.id -eq $taskId)
   Start-Sleep -Seconds 3
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline; $rootPid = 0
+  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline; $rootPid = 0
   $rootPid = Start-TestBackend -ExecutablePath $exe -DataDir $dataDir -Token $token -Port $port -Stage 'restart'
   Wait-BackendHealthy -Port $port -RootPid $rootPid -TimeoutSeconds 15 -Stage 'restart'
   $recovered = Invoke-RestMethod "http://127.0.0.1:$port/tasks/active" -Headers $headers -TimeoutSec 10
@@ -39,13 +39,13 @@ try {
   $db = Join-Path $dataDir 'worklog.db'
   $check = & python (Join-Path $root 'scripts\verify-sqlite-task.py') $db
   Pass 'SQLITE_PERSISTENCE' ($check -match '^1 1')
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline; $rootPid = 0
+  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline; $rootPid = 0
   Assert-NoBackendProcess -ExecutablePath $exe -AllowedPids $baseline
   Write-Output 'TASK_LIFECYCLE=PASS'
 } catch {
   Write-Error "TASK_LIFECYCLE=FAIL: $($_.Exception.Message)"
   exit 1
 } finally {
-  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline } catch { Write-Error "cleanup failed: $($_.Exception.Message)" } }
+  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline } catch { Write-Error "cleanup failed: $($_.Exception.Message)" } }
   if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

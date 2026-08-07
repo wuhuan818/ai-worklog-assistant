@@ -42,7 +42,7 @@ try {
   Pass 'RESTART' ($rootPid -ne $firstPid) "old=$firstPid new=$rootPid"
   Wait-BackendHealthy -Port $port -RootPid $rootPid -TimeoutSeconds 15 -Stage 'restart'
   Start-Sleep -Seconds 5
-  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline
+  Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline
   $rootPid = 0
   Assert-NoBackendProcess -ExecutablePath $exe -AllowedPids $baseline
   Write-Output 'BACKEND_LIFECYCLE=PASS'
@@ -50,6 +50,6 @@ try {
   Write-Error "BACKEND_LIFECYCLE=FAIL: $($_.Exception.Message)"
   exit 1
 } finally {
-  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -ProtectedPids $baseline } catch { Write-Error "cleanup failed: $($_.Exception.Message)" } }
+  if ($rootPid -gt 0) { try { Stop-TestBackendTree -RootPid $rootPid -TimeoutSeconds 10 -Port $port -ExecutablePath $exe -Token $token -ProtectedPids $baseline } catch { Write-Error "cleanup failed: $($_.Exception.Message)" } }
   if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from backend_lifecycle import assert_owned_backend_exited, start_owned_backend, stop_owned_backend
 
 
 def get(url, token=None):
@@ -27,7 +28,7 @@ def main():
     token = 'smoke-token'
     env = os.environ.copy()
     env.update({'WORKLOG_DATA_DIR': str(data_dir), 'WORKLOG_SESSION_TOKEN': token, 'WORKLOG_PORT': str(args.port)})
-    process = subprocess.Popen([args.executable], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = start_owned_backend(Path(args.executable), environment=env)
     try:
         health = None
         for _ in range(40):
@@ -54,18 +55,8 @@ def main():
         print('TOKEN_CHECK=PASS')
         print('USER_DATA_DIR=PASS')
     finally:
-        if os.name == 'nt':
-            subprocess.call(['taskkill', '/F', '/T', '/PID', str(process.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.call(['taskkill', '/F', '/IM', os.path.basename(args.executable)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            executable_path = str(Path(args.executable).resolve()).replace("'", "''")
-            subprocess.call(['powershell.exe', '-NoProfile', '-Command', "Get-Process ai-worklog-server -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '%s' } | Stop-Process -Force" % executable_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            process.kill()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
+        stop_owned_backend(process, port=args.port, token=token)
+        assert_owned_backend_exited(process)
         shutil.rmtree(str(data_dir), ignore_errors=True)
 
 
