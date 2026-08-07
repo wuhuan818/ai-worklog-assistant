@@ -107,6 +107,18 @@
                                              "title": "AI Worklog: 查看 AI 总结草稿"
                                          },
                                          {
+                                             "command": "aiWorklog.exportApprovedSummary",
+                                             "title": "AI Worklog: 导出已批准任务总结"
+                                         },
+                                         {
+                                             "command": "aiWorklog.exportApprovedDailyReport",
+                                             "title": "AI Worklog: 导出已批准日报"
+                                         },
+                                         {
+                                             "command": "aiWorklog.publishKnowledgeCandidates",
+                                             "title": "AI Worklog: 发布知识候选"
+                                         },
+                                         {
                                              "command": "aiWorklog.cancelAiSummaryGeneration",
                                              "title": "AI Worklog: 取消 AI 总结生成"
                                          }
