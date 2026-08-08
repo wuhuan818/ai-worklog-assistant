@@ -5,7 +5,7 @@
 ## 开始前
 
 1. 在 VS Code 使用 **Extensions: Install from VSIX...** 安装正式 VSIX（若尚未安装）。
-2. 打开 Demo 文件夹 `D:\desktop\AI-Worklog-Assistant-Demo\hello-world`。只打开这个文件夹，避免记录到其他工作区。
+2. 打开 Demo 文件夹 `<Demo-Workspace>\hello-world`（本机准备目录）。只打开这个文件夹，避免记录到其他工作区。
 3. 打开 Activity Bar 中的 **AI Worklog**，保持侧边栏可见；确认“后端状态”为健康后再继续。
 4. 不展示或录制 API Key、Provider 配置页、Output 日志、数据库或 VS Code 的全局设置。
 

@@ -623,7 +623,7 @@ Demo 阶段如成功发布 Hello World 知识，可顺带补一次真实正向�
 1. 当前正式仓库代码与最终提交分支
 2. 本文件 `PHASE1_SUBMISSION_CONTEXT.md`
 3. 当前 docs / README / Architecture / Data Model
-4. 上一次比赛材料：`D:\desktop\天津--灵感工坊--姜良振`
+4. 上一次比赛材料：`<Previous-Submission-Materials>`
 
 上一次比赛材料只用于参考目录结构、文件命名、截图组织、Markdown 排版和最终 ZIP 层级，不得照搬旧项目业务内容。
 
