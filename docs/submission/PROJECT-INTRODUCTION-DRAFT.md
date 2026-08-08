@@ -38,7 +38,7 @@ VS Code TypeScript Extension 负责侧边栏、命令、事件感知与 SecretSt
 
 ## 演示说明
 
-将使用真实 Hello World `ReferenceError` 修复任务演示：记录错误与 Bug、修复并验证、结束任务、生成并审核总结、导出 Markdown、发布和检索真实知识。演示截图与视频将在真实流程完成后插入。
+将使用真实 C++ Hello World “标识符未声明”修复任务演示：记录错误与 Bug、修复并验证、结束任务、生成并审核总结、导出 Markdown、发布和检索真实知识。演示截图与视频将在真实流程完成后插入。
 
 [待插入截图]
 

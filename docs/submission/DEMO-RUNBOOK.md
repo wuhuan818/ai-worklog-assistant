@@ -12,21 +12,21 @@
 ## 真实 Demo 操作
 
 1. 通过 Command Palette 执行 **AI Worklog: Start Task**，按向导填写任务名：`修复 Hello World 启动错误并完善问候输出`。
-2. 保持 AI Worklog 侧边栏打开，打开 `hello.js`。
-3. 在集成终端执行 `node hello.js`，确认出现 `ReferenceError: userName is not defined`。
+2. 保持 AI Worklog 侧边栏打开，打开 `hello.cpp`。
+3. 在集成终端执行 `g++ hello.cpp -o hello.exe`，确认出现类似 `error: 'userName' was not declared in this scope` 的编译错误。
 
-   **[截图点 1：错误与当前任务]** 保持终端错误、`hello.js` 和 AI Worklog 侧边栏同时可见；不要展开日志或设置页。
+   **[截图点 1：错误与当前任务]** 保持终端错误、`hello.cpp` 和 AI Worklog 侧边栏同时可见；不要展开日志或设置页。
 
 4. 执行 **AI Worklog: Create Bug**。填写标题“`userName 未定义导致 Hello World 无法运行`”，严重程度选择与实际 UI 中可用的中等或高优先级一致；创建后在侧边栏确认它成为当前 Bug。
-5. 将 `console.log(greet(userName));` 改为 `console.log(greet("World"));` 并保存。
-6. 再次执行 `node hello.js`，确认输出 `Hello, World!`。
+5. 将 `std::cout << greet(userName) << std::endl;` 改为 `std::cout << greet("World") << std::endl;` 并保存。
+6. 执行 `g++ hello.cpp -o hello.exe`，再执行 `.\hello.exe`，确认输出 `Hello, World!`。
 
    **[截图点 2：修复验证]** 同时展示修复后的单行代码、成功终端输出、当前任务和 Bug；此时不要关闭侧边栏。
 
-7. 通过 **AI Worklog: Resolve Bug** 按真实提示填写解决摘要，例如“将未定义变量替换为明确的问候对象，并通过 Node 运行验证”。
+7. 通过 **AI Worklog: Resolve Bug** 按真实提示填写解决摘要，例如“将未定义标识符替换为明确的问候对象，并通过 C++ 编译和运行验证”。
 8. 执行 **AI Worklog: Add Note**，输入：
 
-   `JavaScript 出现 ReferenceError 时，应优先检查变量是否在使用前声明、变量名是否拼写一致，以及变量作用域是否正确。`
+   `C++ 出现“标识符未声明”错误时，应优先检查变量是否在使用前声明、变量名是否拼写一致，以及变量作用域是否正确。`
 
 9. 执行 **AI Worklog: End Task**，等待任务结束与事件写入完成。
 
@@ -46,11 +46,11 @@
    **[截图点 6：已批准与导出]** 展示审核页 Approved 状态或历史任务列表；不要把保存对话框中的个人最近路径纳入截图。
 
 14. 仍在审核页，点击 **发布知识候选**。仅当候选内容真实、准确且无敏感信息时，选择与本 Demo 有关的一条，按 UI 逐项确认标题、分类、摘要和可复用说明后发布。
-15. 在侧边栏点击 **搜索知识**（或执行 **AI Worklog: Search Knowledge Base**），查询 `ReferenceError` 或 `变量未定义`。
+15. 在侧边栏点击 **搜索知识**（或执行 **AI Worklog: Search Knowledge Base**），查询 `标识符未声明` 或 `C++ 未声明变量`。
 
    **[截图点 7：本地知识检索]** 展示真实搜索结果和知识标题；不要展示 managed knowledge 的本机路径。
 
-16. 可选加分项：若 Chat 与 Embedding 配置已经稳定，执行 **AI Worklog: 问知识库**，提问“`JavaScript 变量未定义时应该检查什么？`”。仅当回答引用刚发布的知识时保留截图。
+16. 可选加分项：若 Chat 与 Embedding 配置已经稳定，执行 **AI Worklog: 问知识库**，提问“`C++ 标识符未声明时应该检查什么？`”。仅当回答引用刚发布的知识时保留截图。
 
    **[截图点 8：RAG 引用，可选]** 展示回答与引用标题，不展示 Provider 配置或密钥。
 
