@@ -10,8 +10,8 @@
 它解决的问题不是“再做一个聊天机器人”，而是把开发过程中原本零散、容易丢失的信息自动组织起来：
 
 - 任务开始与结束时间
-- 文件变化与 Diff 摘要
-- 终端命令及结果
+- 文件编辑/保存活动（语言、计数、大小、行数变化与相对路径等元数据；不保存源码正文或真实 Diff）
+- VS Code Task 活动（不是普通集成终端命令或输出）
 - VS Code Task / Debug / Diagnostic
 - 用户备注
 - Bug 生命周期与解决方案
@@ -45,7 +45,7 @@
 典型流程：
 
 1. 用户在 VS Code 中点击“开始任务”。
-2. 开发过程中系统持续记录文件变化、命令、诊断、备注和 Bug。
+2. 开发过程中系统持续记录文件编辑/保存活动、VS Code Task/Debug、Diagnostics、备注和 Bug；不自动采集普通集成终端命令或输出。
 3. 用户结束任务。
 4. 系统构建经过脱敏和预算控制的 AI Context Package。
 5. 用户确认后调用真实 AI Provider 生成结构化总结。
@@ -112,9 +112,8 @@ VSIX
 系统记录：
 
 - 任务时间
-- 文件变化
-- Diff 摘要
-- 终端命令
+- 文件编辑/保存活动元数据（不含源码正文、具体修改行或 Git-style patch）
+- VS Code Task 活动
 - VS Code Task
 - Debug
 - Diagnostic
@@ -161,8 +160,8 @@ task-context-package/v1
 AI 输出为八类结构化内容：
 
 1. 任务总结
-2. 代码变更
-3. 命令与结果
+2. 开发活动概览
+3. VS Code Task / Debug 与 Diagnostics 等可用证据摘要
 4. Bug 解决方案
 5. 未解决问题
 6. 待办
@@ -463,7 +462,7 @@ ai-worklog-assistant-0.1.1.vsix
 
 ### 亮点 1：开发过程自动结构化
 
-直接从 VS Code 工作过程获取文件修改、命令、Bug、诊断和备注。
+从 VS Code 工作过程获取文件编辑/保存活动元数据、VS Code Task/Debug、Diagnostics、Bug 和备注；不读取或保存完整源码修改、真实 Diff，也不采集普通集成终端命令。
 
 ### 亮点 2：AI 输出有人工审核链路
 
@@ -642,4 +641,4 @@ Demo 阶段如成功发布 Hello World 知识，可顺带补一次真实正向�
 
 最终一句话建议：
 
-> AI Worklog Assistant 将 VS Code 中的真实开发过程自动记录、总结、审核并沉淀为可检索知识，让每一次问题解决都能成为下一次工作的上下文。
+> AI Worklog Assistant 将用户显式记录的 VS Code 开发活动整理、总结、审核并沉淀为可检索知识，让每一次问题解决都能成为下一次工作的上下文。

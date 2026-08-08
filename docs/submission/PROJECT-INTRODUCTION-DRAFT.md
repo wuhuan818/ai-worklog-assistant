@@ -1,50 +1,90 @@
 # AI Worklog Assistant
 
-> 让 VS Code 中的真实开发过程自动记录、总结、审核并沉淀为可检索知识。
-
-## 项目简介
-
-AI Worklog Assistant 是运行在 VS Code 内的本地优先工作记录与知识沉淀助手。它将用户显式开始的一段开发任务中的文件变化、命令结果、诊断、备注和 Bug 生命周期组织为结构化记录，再经受控 AI 总结与人工审核，形成可导出、可发布、可检索的知识闭环。
-
-[待插入截图：主界面 / 当前任务]
+> AI Worklog Assistant 是一个运行在 VS Code 中的 AI 工作记录与知识沉淀助手，将真实开发活动整理为结构化工作上下文，经 AI 总结和人工审核后沉淀为可检索知识。
 
 ## 选题背景
 
-开发中的问题定位、修复过程和经验通常散落在终端、代码修改和临时沟通中，任务结束后难以准确复盘，更难在下一次遇到类似问题时复用。项目聚焦“开发过程容易丢失”这一痛点：不要求开发者事后重写日志，而是在用户明确开始任务后，辅助沉淀真实过程。
+开发中的排查过程、文件编辑、Diagnostics、Bug 和临时备注往往分散在不同工具中。任务结束后，开发者需要依赖记忆补写日志；即使借助 AI Chat，也不代表内容已经过审核并能成为长期知识。AI Worklog Assistant 的目标是让用户在明确开始任务后，把实际发生的开发活动组织为可复盘、可审核、可复用的信息。
 
-## 功能介绍与核心流程
+## 核心功能
 
-`开始任务 → 记录事件与 Bug → 结束任务 → Context Preview / Ready → AI Summary Draft → Revision / Approved → Markdown 导出或知识发布 → 本地检索 / RAG`
+```text
+开始任务
+→ 记录开发活动
+→ Bug / Note
+→ Context Package
+→ AI Summary
+→ Revision
+→ Review
+→ Markdown Export
+→ Knowledge Publication
+→ Retrieval / RAG
+```
 
-- 任务、事件、Bug、备注与解决方案的本地结构化记录；
-- AI Context Package 在发送前执行预览、脱敏与预算控制；
-- 结构化 AI 总结，支持 Revision、批准和拒绝；
-- 仅批准内容可导出 Markdown 或选择性发布为知识；
-- Published Knowledge 支持本地关键词检索；配置 Embedding 后支持语义/混合检索与带引用的 RAG 问答。
+- 用户显式开始和结束任务；
+- 任务期间捕获文件编辑/保存活动、VS Code Diagnostics、VS Code Task、Debug、Bug 生命周期和手工备注；
+- 文件事件保存语言、编辑计数、字符/行数变化、文件大小、时间和经规范化的路径等活动元数据，不保存源码正文、具体修改行或真实代码 Diff；
+- 普通 VS Code Integrated Terminal 的手工命令和输出不属于当前自动采集范围；
+- 结束任务后，系统构建可预览、脱敏并受预算控制的 Context Package；
+- Ready Context 可以请求 AI 生成结构化总结，并进入人工修订与审核流程。
 
-[待插入截图：Bug 修复、AI 总结审核、Approved / 导出、知识搜索]
+## 演示案例：修复 C++ Hello World 标识符错误
+
+本次演示任务为“修复 Hello World 启动错误并完善问候输出”。初始代码中使用了未声明的 `userName`：
+
+```cpp
+std::cout << greet(userName) << std::endl;
+```
+
+用户在 VS Code 中完成实际排查与修复，并通过编译器 Diagnostics 验证问题消失。系统记录的是该任务中真实发生的文件编辑/保存活动、Bug、Diagnostics 和用户补充信息；它不会自动读取 C++ 源码的修改前后正文。
+
+## AI 结构化总结与人工审核
+
+```text
+AI Draft → Revision → Approved
+```
+
+AI 只能使用用户确认的 Ready Context 生成结构化 Draft。原始 Draft 不被直接覆盖；用户的调整会保存为新的 Revision，只有 Approved Revision 才成为正式版本，并可用于导出或发布知识。这一边界让 AI 生成内容与人工确认结果保持清晰可追溯。
+
+## 知识沉淀与复用
+
+```text
+Approved Revision
+→ Knowledge Candidate
+→ User Selection
+→ Published Knowledge
+→ Search / RAG
+```
+
+并非所有 AI 内容都会自动进入知识库。用户选择真正有价值的候选后才发布为 Published Knowledge；它才是本地检索、语义/混合检索和带引用 RAG 问答的正式知识源。
 
 ## 技术架构
 
-VS Code TypeScript Extension 负责侧边栏、命令、事件感知与 SecretStorage；本地 Python/FastAPI 后端通过 loopback HTTP 提供服务；SQLite 保存结构化业务数据与索引；审核后知识以 Markdown 与索引形式管理。正式 VSIX 内置 Windows packaged backend，因此安装者不需要单独配置 Python 或手动启动服务。
+- VS Code TypeScript Extension：侧边栏、命令、VS Code 活动事件与 SecretStorage；
+- Python / FastAPI Local Backend：本地业务服务与受控 AI 调用；
+- SQLite：任务、事件、审核、发布与检索数据的本地存储；
+- Windows Packaged Backend EXE + VSIX：安装 VSIX 后无需单独部署 Python 或手工启动服务；
+- Chat：DeepSeek、Qwen、Custom OpenAI-compatible；Embedding：Qwen、Custom OpenAI-compatible；
+- Retrieval：Lexical、Semantic、Hybrid，以及带 Citation Validation 的单轮 RAG Answer。
 
 ## 隐私与安全
 
-项目遵循本地优先、最小化外发和明确用户控制：API Key 只经 VS Code SecretStorage 使用；Context 在 Ready 前可预览并经过脱敏；不持久化 Authorization、完整 Prompt、Provider 原始响应或 reasoning 内容；RAG 仅以已发布知识作为权威来源。
+项目采用 Local-first、最小化外发和用户控制原则。API Key 使用 VS Code SecretStorage；工作数据本地保存于 SQLite；只有 Ready Context 才可用于 AI Summary。路径会规范化/脱敏，系统不持久化 `reasoning_content`、Provider 原始 Response 或完整 Prompt。使用外部 Chat 或 Embedding Provider 时，仅在用户触发相应操作后发送经过限定的 Context 或 Published Knowledge 片段。
 
-## AI 协作开发心得
+## AI 使用心得
 
-本项目不是“一次 Prompt 生成完整应用”。ChatGPT 用于产品规划、阶段拆分、架构边界与验收标准；Codex 用于实现、测试、构建与 Git 闭环；用户负责产品取舍和真实 UI 验收。实践过程是“规划 → 实现 → 自动验证 → 人工验收 → 定向修复 → 再验证”的协作循环。
+本项目并非通过一次 Prompt 自动生成。ChatGPT 用于产品方向、功能拆解、架构边界、验收标准和材料统筹；Codex 用于阅读代码、实现、Bug 修复、自动化测试、打包与 Git 闭环；用户负责产品判断、真实 UI/Provider 验收和最终截图。实际协作遵循：
+
+```text
+规划 → 实现 → 自动验证 → 人工验收 → 暴露问题 → 定向修复 → 再验证
+```
+
+这种分工让 AI 承担工程执行与高频验证，而由人保留产品判断和最终验收责任。
 
 ## 演示说明
 
-将使用真实 C++ Hello World “标识符未声明”修复任务演示：记录错误与 Bug、修复并验证、结束任务、生成并审核总结、导出 Markdown、发布和检索真实知识。演示截图与视频将在真实流程完成后插入。
+本次提交采用真实截图演示，不提交视频。截图围绕 C++ Hello World Bug 修复任务，展示任务记录、Bug、AI 结构化总结、Revision / Review、Markdown 导出、知识发布、知识搜索和带引用的知识问答。
 
-[待插入截图]
+## 后续方向
 
-## 项目亮点
-
-1. 以真实开发过程为输入，而不是事后手工回忆。
-2. AI Draft 与人工 Revision / Approved 分离，避免未审核内容直接成为正式知识。
-3. 从工作记录到 Published Knowledge，再到 Retrieval / RAG 的完整闭环。
-4. 本地优先的存储、密钥和 AI 外发边界设计。
+未来可在隐私与大小控制前提下，增加更细粒度的代码差异采集、更多开发工具事件接入和多轮知识助手能力；这些均不属于当前提交版本已实现的能力。
