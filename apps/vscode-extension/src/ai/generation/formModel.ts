@@ -23,5 +23,5 @@ export function formToContent(form: SummaryFormState): AiSummaryDraftContent {
 }
 export function evidenceLabel(ref: string): string {
   const type = ref.split(':', 1)[0];
-  return ({ vscode_task_started: '任务开始事件', vscode_task_ended: '任务结束事件', file_changed: '文件变更', file_saved: '文件保存', diagnostics_changed: '诊断变更', manual_note: '手工备注' } as Record<string, string>)[type] || '工作记录证据';
+  return ({ vscode_task_started: '任务开始事件', vscode_task_ended: '任务结束事件', file_changed: '文件变更', file_saved: '文件保存', code_diff: '代码差异', diagnostics_changed: '诊断变更', manual_note: '手工备注' } as Record<string, string>)[type] || '工作记录证据';
 }

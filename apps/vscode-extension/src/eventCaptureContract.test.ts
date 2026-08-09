@@ -6,6 +6,11 @@ import test from 'node:test';
 test('event capture registers every VS Code source and sidebar controls', () => {
   const compiled = fs.readFileSync(path.join(__dirname, 'eventCapture', 'eventCaptureController.js'), 'utf8');
   assert.match(compiled, /onDidSaveTextDocument/);
+  assert.match(compiled, /onDidOpenTextDocument/);
+  assert.match(compiled, /onDidCloseTextDocument/);
+  assert.match(compiled, /SaveDiffTracker/);
+  assert.match(compiled, /captureSavedDocument/);
+  assert.match(compiled, /code_diff/);
   assert.match(compiled, /onDidChangeTextDocument/);
   assert.match(compiled, /onDidChangeDiagnostics/);
   assert.match(compiled, /onDidStartTask/);

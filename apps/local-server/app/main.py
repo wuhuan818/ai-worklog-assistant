@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio, ctypes, hashlib, json, os, re, secrets, sqlite3, threading, uuid
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,7 +20,7 @@ PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 API_VERSION = 'stage-11b'
-FEATURES = ['ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1', 'semantic-retrieval-v1', 'rag-answer-v1']
+FEATURES = ['code-change-capture-v2', 'ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1', 'semantic-retrieval-v1', 'rag-answer-v1']
 BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
 app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
 from app.ai.router import router as ai_router
@@ -179,7 +180,7 @@ class BugResolutionIn(BaseModel):
         if not value.strip(): raise ValueError('resolution_summary must not be blank')
         return value.strip()
 class EventIn(BaseModel): userId: str='local-user'; projectId: str; taskId: str; bugId: Optional[str]=None; source: str='vscode'; type: str; timestamp: str; payload: Dict[str,Any]={}; sensitivity: str='normal'
-EVENT_TYPES = {'file_changed','file_saved','diagnostics_changed','vscode_task_started','vscode_task_process_started','vscode_task_process_ended','vscode_task_ended','debug_session_started','debug_session_terminated','debug_active_session_changed','manual_note'}
+EVENT_TYPES = {'file_changed','file_saved','code_diff','diagnostics_changed','vscode_task_started','vscode_task_process_started','vscode_task_process_ended','vscode_task_ended','debug_session_started','debug_session_terminated','debug_active_session_changed','manual_note'}
 class CapturedEvent(BaseModel):
     client_event_id: str = Field(min_length=1, max_length=200)
     event_type: str
@@ -203,6 +204,25 @@ class CapturedEvent(BaseModel):
     @validator('event_type')
     def valid_type(cls, value):
         if value not in EVENT_TYPES: raise ValueError('unsupported event_type')
+        return value
+    @validator('payload')
+    def valid_code_diff_payload(cls, value, values):
+        if values.get('event_type') != 'code_diff': return value
+        patch = value.get('patch')
+        if not isinstance(patch, str) or not patch: raise ValueError('code_diff patch is required')
+        if len(patch.encode('utf-8')) > 245000: raise ValueError('code_diff patch exceeds 245 KB')
+        if not isinstance(values.get('file_path'), str) or not values.get('file_path'): raise ValueError('code_diff file_path is required')
+        for key in ('added_lines', 'removed_lines', 'original_patch_bytes', 'retained_patch_bytes'):
+            number = value.get(key)
+            if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'code_diff {key} must be a non-negative integer')
+        if not isinstance(value.get('patch_truncated'), bool): raise ValueError('code_diff patch_truncated must be a boolean')
+        ranges = value.get('changed_ranges')
+        if not isinstance(ranges, list) or not ranges: raise ValueError('code_diff changed_ranges is required')
+        for item in ranges:
+            if not isinstance(item, dict): raise ValueError('code_diff changed_ranges must contain objects')
+            for key in ('before_start_line', 'before_line_count', 'after_start_line', 'after_line_count'):
+                number = item.get(key)
+                if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'code_diff changed_ranges.{key} must be a non-negative integer')
         return value
 class EventBatch(BaseModel): events: List[CapturedEvent]
 class SummaryIn(BaseModel): content: Dict[str,Any]
@@ -391,7 +411,11 @@ def batch_events(task_id: str, batch: EventBatch, authorization: Optional[str]=H
     c.execute('BEGIN IMMEDIATE')
     try:
         for event in batch.events:
-            payload = filter_sensitive(event.payload)
+            redactions = Counter()
+            payload = filter_sensitive(event.payload, redactions)
+            if event.event_type == 'code_diff':
+                payload['redaction_count'] = sum(redactions.values())
+                payload['redaction_categories'] = dict(sorted(redactions.items()))
             payload_json = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
             if len(payload_json.encode('utf-8')) > 262144: raise HTTPException(400, 'event payload exceeds 256 KB')
             existing = c.execute('SELECT id FROM worklog_events WHERE client_event_id=?', (event.client_event_id,)).fetchone()
@@ -441,9 +465,10 @@ def events(task_id: str, authorization: Optional[str]=Header(None)):
 @app.post('/events')
 def add_event(x: EventIn, authorization: Optional[str]=Header(None)):
     auth(authorization); c=db(); task_row=event_task(x.taskId,c)
+    if x.type == 'code_diff': raise HTTPException(422, 'code_diff requires the captured event batch contract')
     if task_row['project_id'] != x.projectId: raise HTTPException(422, 'projectId must match task project')
     if x.bugId and not c.execute('SELECT 1 FROM bugs WHERE id=? AND task_id=? AND user_id=?',(x.bugId,x.taskId,'local-user')).fetchone(): raise HTTPException(422, 'bugId must belong to this task')
-    eid=x.__dict__.get('id') or str(uuid.uuid4()); c.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',(eid,x.userId,x.projectId,x.taskId,x.bugId,x.type,x.timestamp,json.dumps(filter_sensitive(x.payload),ensure_ascii=False),x.sensitivity)); c.commit(); return {'id':eid}
+    eid=x.__dict__.get('id') or str(uuid.uuid4()); c.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',(eid,x.userId,x.projectId,x.taskId,x.bugId,x.type,x.timestamp,json.dumps(filter_sensitive(x.payload, legacy_bracket_markers=True),ensure_ascii=False),x.sensitivity)); c.commit(); return {'id':eid}
 def active_seconds(row: sqlite3.Row, timestamp: str) -> int:
     total = int(row['total_active_seconds'] or 0)
     if row['active_started_at']:
@@ -600,11 +625,21 @@ def resolve_bug_legacy(bug_id: str, x: Optional[BugResolutionIn]=None, authoriza
     auth(authorization); row=db().execute('SELECT task_id FROM bugs WHERE id=? AND user_id=?',(bug_id,'local-user')).fetchone()
     if not row: raise HTTPException(404,'Bug not found')
     return resolve_bug_task(row['task_id'],bug_id,x or BugResolutionIn(resolution_summary='Resolved'),authorization)
-def filter_sensitive(value: Any):
+def filter_sensitive(value: Any, redactions: Optional[Counter] = None, legacy_bracket_markers: bool = False):
     if isinstance(value, dict):
-        return {k: ('[REDACTED]' if re.search(r'(?i)(api[_-]?key|token|password|secret|authorization)', k) else filter_sensitive(v)) for k, v in value.items()}
-    if isinstance(value, list): return [filter_sensitive(v) for v in value]
-    if isinstance(value, str): return re.sub(r'(?i)sk-[A-Za-z0-9_-]{10,}', '[REDACTED]', value)
+        result = {}
+        for key, item in value.items():
+            if re.search(r'(?i)(api[_-]?key|token|password|secret|authorization)', key):
+                result[key] = '[REDACTED]'
+                if redactions is not None: redactions['sensitive-field-name'] += 1
+            else: result[key] = filter_sensitive(item, redactions, legacy_bracket_markers)
+        return result
+    if isinstance(value, list): return [filter_sensitive(v, redactions, legacy_bracket_markers) for v in value]
+    if isinstance(value, str):
+        from app.ai.context.redaction import redact_text
+        redacted, categories = redact_text(value)
+        if redactions is not None: redactions.update(categories)
+        return re.sub(r'<redacted:[a-z-]+>', '[REDACTED]', redacted) if legacy_bracket_markers else redacted
     return value
 def mock_summary(tid):
     c=db(); t=dict(c.execute('SELECT * FROM tasks WHERE id=?',(tid,)).fetchone()); bs=[dict(r) for r in c.execute('SELECT * FROM bugs WHERE task_id=?',(tid,))]; es=[dict(r) for r in c.execute('SELECT * FROM events WHERE task_id=?',(tid,))]; cmds=[json.loads(e['payload']).get('command') for e in es if e['type']=='terminal_command' and json.loads(e['payload']).get('command')]; unresolved=[b['title'] for b in bs if b['status']!='resolved'];

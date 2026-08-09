@@ -3,12 +3,14 @@ import { EventBuffer, BufferedEvent } from '../eventBuffer';
 import { ApiClient, WorklogEventType } from '../apiClient';
 import { TaskState } from '../taskState';
 import { relativeFilePath, safePayload } from './eventSanitizer';
+import { captureEligibility, CodeCaptureLimits, DEFAULT_MAX_DIFF_BYTES, DEFAULT_MAX_FILE_SIZE_BYTES } from './codeDiff';
+import { SaveDiffTracker } from './saveDiffTracker';
 
 export type CurrentBugIdProvider = () => string | undefined;
 
 export class EventCaptureController implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[] = [];
-  private readonly savedBaselines = new Map<string, string>();
+  private readonly savedBaselines = new SaveDiffTracker();
   private readonly buffer: EventBuffer;
   private taskId?: string;
   private enabled = false;
@@ -19,8 +21,21 @@ export class EventCaptureController implements vscode.Disposable {
     private readonly currentBugId: CurrentBugIdProvider = () => undefined,
   ) {
     this.buffer = new EventBuffer(async (taskId, events) => { const client = this.api(); if (!client) throw new Error('backend unavailable'); await client.batchEvents(taskId, events); });
-    this.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => { const current = document.getText(); const previous = this.savedBaselines.get(document.uri.toString()) ?? ''; const oldLines = previous ? previous.split(/\r?\n/).length : 0; const newLines = current ? current.split(/\r?\n/).length : 0; this.savedBaselines.set(document.uri.toString(), current); this.emit('file_saved', document.uri, { language_id: document.languageId, file_size: current.length, added_lines: Math.max(0, newLines - oldLines), removed_lines: Math.max(0, oldLines - newLines), diff_summary: `${Math.max(0, newLines - oldLines)} lines added, ${Math.max(0, oldLines - newLines)} lines removed`, diff_truncated: false }); }));
-    this.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => { if (event.contentChanges.length) { const inserted = event.contentChanges.reduce((sum, change) => sum + change.text.length, 0); const deleted = event.contentChanges.reduce((sum, change) => sum + change.rangeLength, 0); this.emit('file_changed', event.document.uri, { language_id: event.document.languageId, change_count: event.contentChanges.length, inserted_character_count: inserted, deleted_character_count: deleted, dirty: event.document.isDirty }); } }));
+    this.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => this.primeBaseline(document)));
+    this.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => this.savedBaselines.delete(document.uri.toString())));
+    this.subscriptions.push(vscode.workspace.onDidDeleteFiles(event => event.files.forEach(uri => this.savedBaselines.delete(uri.toString()))));
+    this.subscriptions.push(vscode.workspace.onDidRenameFiles(event => event.files.forEach(file => {
+      this.savedBaselines.delete(file.oldUri.toString());
+      const document = vscode.workspace.textDocuments.find(item => item.uri.toString() === file.newUri.toString());
+      if (document) this.primeBaseline(document);
+    })));
+    this.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => this.captureSavedDocument(document)));
+    this.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
+      if (!this.enabled || !event.contentChanges.length || !this.isEligible(event.document)) return;
+      const inserted = event.contentChanges.reduce((sum, change) => sum + change.text.length, 0);
+      const deleted = event.contentChanges.reduce((sum, change) => sum + change.rangeLength, 0);
+      this.emit('file_changed', event.document.uri, { language_id: event.document.languageId, change_count: event.contentChanges.length, inserted_character_count: inserted, deleted_character_count: deleted, dirty: event.document.isDirty });
+    }));
     this.subscriptions.push(vscode.languages.onDidChangeDiagnostics(event => { for (const uri of event.uris) { const diagnostics = vscode.languages.getDiagnostics(uri); const counts = [0,0,0,0]; const items = diagnostics.slice(0,100).map(d => { counts[d.severity - 1]++; return { severity: d.severity, message: d.message.slice(0,500), source: d.source, code: d.code, range: { start: d.range.start, end: d.range.end } }; }); this.emit('diagnostics_changed', uri, { error_count: counts[0], warning_count: counts[1], information_count: counts[2], hint_count: counts[3], diagnostics: items, truncated: diagnostics.length > 100 }); } }));
     this.subscriptions.push(vscode.tasks.onDidStartTask(e => this.emit('vscode_task_started', undefined, { name: e.execution.task.name, definition_type: e.execution.task.definition.type })));
     this.subscriptions.push(vscode.tasks.onDidStartTaskProcess(e => this.emit('vscode_task_process_started', undefined, { name: e.execution.task.name, process_id: e.processId ?? null })));
@@ -29,6 +44,61 @@ export class EventCaptureController implements vscode.Disposable {
     this.subscriptions.push(vscode.debug.onDidStartDebugSession(s => this.emit('debug_session_started', undefined, { id: s.id, name: s.name, type: s.type, request: s.configuration.request })));
     this.subscriptions.push(vscode.debug.onDidTerminateDebugSession(s => this.emit('debug_session_terminated', undefined, { id: s.id, name: s.name, type: s.type })));
     this.subscriptions.push(vscode.debug.onDidChangeActiveDebugSession(s => this.emit('debug_active_session_changed', undefined, { id: s?.id || null, name: s?.name || null })));
+  }
+  private captureLimits(): CodeCaptureLimits {
+    const config = vscode.workspace.getConfiguration('aiWorklog.eventCapture');
+    const fileSize = Number(config.get<number>('maxFileSizeBytes', DEFAULT_MAX_FILE_SIZE_BYTES));
+    const diffSize = Number(config.get<number>('maxDiffBytes', DEFAULT_MAX_DIFF_BYTES));
+    const exclude = config.get<string[]>('exclude', []);
+    return {
+      maxFileSizeBytes: Number.isFinite(fileSize) ? Math.max(1_024, Math.min(fileSize, 10 * 1024 * 1024)) : DEFAULT_MAX_FILE_SIZE_BYTES,
+      maxDiffBytes: Number.isFinite(diffSize) ? Math.max(1_024, Math.min(diffSize, 245_000)) : DEFAULT_MAX_DIFF_BYTES,
+      exclude: Array.isArray(exclude) ? exclude.filter(item => typeof item === 'string') : [],
+    };
+  }
+  private isEligible(document: vscode.TextDocument): boolean {
+    const file = relativeFilePath(document.uri);
+    return Boolean(file.filePath && captureEligibility(file.filePath, document.getText(), this.captureLimits()).eligible);
+  }
+  private primeBaseline(document: vscode.TextDocument): void {
+    if (!this.enabled) return;
+    if (this.isEligible(document)) this.savedBaselines.prime(document.uri.toString(), document.getText());
+    else this.savedBaselines.delete(document.uri.toString());
+  }
+  private captureSavedDocument(document: vscode.TextDocument): void {
+    if (!this.enabled) return;
+    const file = relativeFilePath(document.uri);
+    const current = document.getText();
+    const limits = this.captureLimits();
+    const eligibility = file.filePath ? captureEligibility(file.filePath, current, limits) : { eligible: false as const, reason: 'outside_workspace' };
+    if (!eligibility.eligible) {
+      this.savedBaselines.delete(document.uri.toString());
+      if (this.enabled && file.filePath) this.log(`code diff skipped for ${file.filePath}: ${eligibility.reason}`);
+      return;
+    }
+    const capture = this.savedBaselines.capture(document.uri.toString(), current, file.filePath!, limits.maxDiffBytes);
+    const diff = capture.kind === 'diff' ? capture.diff : undefined;
+    this.emit('file_saved', document.uri, {
+      language_id: document.languageId,
+      file_size: Buffer.byteLength(current, 'utf8'),
+      added_lines: diff?.addedLines ?? 0,
+      removed_lines: diff?.removedLines ?? 0,
+      diff_summary: capture.kind === 'baseline' ? 'diff unavailable: no saved baseline' : `${diff?.addedLines ?? 0} lines added, ${diff?.removedLines ?? 0} lines removed`,
+      diff_truncated: diff?.patchTruncated ?? false,
+    });
+    if (!diff) return;
+    this.emit('code_diff', document.uri, {
+      language_id: document.languageId,
+      file_size: Buffer.byteLength(current, 'utf8'),
+      patch: diff.patch,
+      changed_ranges: [{ before_start_line: diff.beforeStartLine, before_line_count: diff.beforeLineCount, after_start_line: diff.afterStartLine, after_line_count: diff.afterLineCount }],
+      added_lines: diff.addedLines,
+      removed_lines: diff.removedLines,
+      original_patch_bytes: diff.originalPatchBytes,
+      retained_patch_bytes: diff.retainedPatchBytes,
+      patch_truncated: diff.patchTruncated,
+      capture_mode: 'save-time-snapshot',
+    });
   }
   private emit(type: WorklogEventType, uri: vscode.Uri | undefined, payload: Record<string, unknown>): void {
     const task = this.state.task;
@@ -52,7 +122,12 @@ export class EventCaptureController implements vscode.Disposable {
   }
   async flush(): Promise<void> { await this.buffer.flush(); }
   get pendingCount(): number { return this.buffer.size; }
-  setEnabled(value: boolean): void { this.enabled = value; if (!value) this.buffer.clear(); }
+  setEnabled(value: boolean): void {
+    const changed = this.enabled !== value;
+    this.enabled = value;
+    if (value && changed) vscode.workspace.textDocuments.forEach(document => this.primeBaseline(document));
+    if (!value) { this.buffer.clear(); this.savedBaselines.clear(); }
+  }
   record(type: WorklogEventType, payload: Record<string, unknown> = {}): void { this.emit(type, undefined, payload); }
-  dispose(): void { this.subscriptions.forEach(s => s.dispose()); void this.buffer.dispose(); }
+  dispose(): void { this.subscriptions.forEach(s => s.dispose()); this.savedBaselines.clear(); void this.buffer.dispose(); }
 }

@@ -151,7 +151,7 @@ async function endTask(context: vscode.ExtensionContext, state: TaskState, serve
   if (!state.task) { vscode.window.showWarningMessage('当前没有活动任务'); return; }
   events?.record('vscode_task_ended', { name: state.task.name });
   await events?.flush();
-  const api = await ensureServer(server); const task = controller ? await controller.end(api) : await api.endTask(state.task.id); state.setTask(task);
+  const api = await ensureServer(server); const task = controller ? await controller.end(api) : await api.endTask(state.task.id); state.setTask(task); events?.setEnabled(false);
   vscode.window.showInformationMessage(`任务已结束，工作时长：${TaskState.formatDuration(task.duration_seconds || 0)}`);
 }
 async function refreshTask(state: TaskState, server: ServerManager, controller: TaskLifecycleController): Promise<void> { const api=await ensureServer(server); await controller.synchronize(api); }

@@ -39,8 +39,12 @@ def build_package(c: sqlite3.Connection, task_id: str, config: ContextBuildConfi
         raise ContextError("minimum_context_exceeds_budget", "The context exceeds the configured token budget")
     package["created_at"] = timestamp; package["updated_at"] = timestamp
     package["content_hash"] = content_hash(package); package["provenance"]["content_hash"] = package["content_hash"]
+    budget_truncations = package.get("budget", {}).get("truncation_categories", {})
+    budget_truncation_count = sum(value for value in budget_truncations.values() if isinstance(value, int) and not isinstance(value, bool)) if isinstance(budget_truncations, dict) else 0
+    capture_truncation_count = sum(1 for item in package.get("code_diffs", []) if isinstance(item, dict) and item.get("patch_truncated") is True)
+    truncation_count = budget_truncation_count + capture_truncation_count
     c.execute("INSERT INTO ai_context_packages(id,schema_version,project_id,task_id,status,build_config_json,context_json,content_hash,estimated_tokens,redaction_count,truncation_count,created_at,updated_at,idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      (package["context_id"], package["schema_version"], package["project"]["project_id"], task_id, "preview", json.dumps(config.model_dump() if hasattr(config, "model_dump") else config.dict(), sort_keys=True, separators=(",",":")), json.dumps(package, ensure_ascii=False, sort_keys=True, separators=(",",":")), package["content_hash"], budget["estimated_tokens_after"], package["privacy"].get("redaction_count",0), 0, timestamp, timestamp, idempotency_key))
+      (package["context_id"], package["schema_version"], package["project"]["project_id"], task_id, "preview", json.dumps(config.model_dump() if hasattr(config, "model_dump") else config.dict(), sort_keys=True, separators=(",",":")), json.dumps(package, ensure_ascii=False, sort_keys=True, separators=(",",":")), package["content_hash"], budget["estimated_tokens_after"], package["privacy"].get("redaction_count",0), truncation_count, timestamp, timestamp, idempotency_key))
     return repository.get(c, package["context_id"])
 
 def ready_package(c: sqlite3.Connection, context_id: str, timestamp: str) -> dict:

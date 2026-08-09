@@ -44,7 +44,7 @@ def _content(package: MutableMapping[str, Any]) -> str:
 
 
 def _diff_text(item: MutableMapping[str, Any]) -> Tuple[str, str]:
-    for key in ("diff", "content", "text", "snippet", "diff_text"):
+    for key in ("patch", "diff", "content", "text", "snippet", "diff_text"):
         if isinstance(item.get(key), str):
             return key, item[key]
     return "", ""
@@ -71,7 +71,7 @@ def _cap_diff(item: MutableMapping[str, Any], char_cap: int = DIFF_MAX_CHARACTER
 
 
 def _iter_diff_lists(package: MutableMapping[str, Any]) -> Iterable[List[Any]]:
-    for key in ("file_changes", "files", "diffs"):
+    for key in ("code_diffs", "file_changes", "files", "diffs"):
         value = package.get(key)
         if isinstance(value, list):
             yield value
@@ -179,12 +179,12 @@ def apply_budget(package: Dict[str, Any], budget: int) -> Dict[str, Any]:
         truncations["diff-budget-limit"] += 1
     _, current = _set_report(result, budget, before_chars, before_tokens, truncations, omissions)
     # Lowest to highest priority (the task core and reports are intentionally absent).
-    sections = ("debug_events", "commands_and_tasks", "commands", "tasks", "diffs", "file_changes", "files",
+    sections = ("debug_events", "commands_and_tasks", "commands", "tasks", "diffs", "code_diffs", "file_changes", "files",
                 "diagnostics", "bug_notes", "bugs", "manual_notes", "task.manual_notes")
     while current > budget:
         progressed = False
         for key in sections:
-            if key in ("diffs", "file_changes", "files") and _shorten_diff_once(result):
+            if key in ("diffs", "code_diffs", "file_changes", "files") and _shorten_diff_once(result):
                 truncations["diff-budget-limit"] += 1
                 progressed = True
             elif _remove_one(result, key):

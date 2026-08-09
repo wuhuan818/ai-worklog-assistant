@@ -36,6 +36,7 @@ class ContextPackage(BaseModel):
     task: Dict[str, Any]
     bugs: List[Dict[str, Any]] = Field(default_factory=list)
     file_changes: List[Dict[str, Any]] = Field(default_factory=list)
+    code_diffs: List[Dict[str, Any]] = Field(default_factory=list)
     diagnostics: List[Dict[str, Any]] = Field(default_factory=list)
     commands_and_tasks: List[Dict[str, Any]] = Field(default_factory=list)
     debug_events: List[Dict[str, Any]] = Field(default_factory=list)

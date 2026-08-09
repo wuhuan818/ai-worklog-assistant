@@ -2,7 +2,7 @@ export interface ProjectView { id: string; user_id: string; name: string; worksp
 export interface ProjectResolution { project: ProjectView; created: boolean; matched_by: string; }
 export interface TaskView { id: string; project_id: string; name: string; description?: string; requirement_id?: string; status: string; started_at: string; ended_at?: string | null; duration_seconds?: number | null; tags: string[]; }
 export interface ActiveTaskResponse { task: TaskView | null; }
-export type WorklogEventType = 'file_changed'|'file_saved'|'diagnostics_changed'|'vscode_task_started'|'vscode_task_process_started'|'vscode_task_process_ended'|'vscode_task_ended'|'debug_session_started'|'debug_session_terminated'|'debug_active_session_changed'|'manual_note'|'bug_note_added';
+export type WorklogEventType = 'file_changed'|'file_saved'|'code_diff'|'diagnostics_changed'|'vscode_task_started'|'vscode_task_process_started'|'vscode_task_process_ended'|'vscode_task_ended'|'debug_session_started'|'debug_session_terminated'|'debug_active_session_changed'|'manual_note'|'bug_note_added';
 export interface WorklogEvent { id: string; clientEventId: string; taskId: string; bugId?: string | null; eventType: WorklogEventType; source: 'vscode'; workspacePath?: string; filePath?: string; occurredAt: string; createdAt: string; sequence: number; payload: Record<string, unknown>; }
 export interface EventSummary { total: number; by_type: Record<string, number>; latest_event_at: string | null; }
 export type BugStatus = 'open' | 'active' | 'paused' | 'resolved';

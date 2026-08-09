@@ -165,11 +165,15 @@
                 },
                 "aiWorklog.eventCapture.maxFileSizeBytes": {
                     "type": "number",
-                    "default": 1048576
+                    "default": 1048576,
+                    "minimum": 1024,
+                    "maximum": 10485760
                 },
                 "aiWorklog.eventCapture.maxDiffBytes": {
                     "type": "number",
-                    "default": 204800
+                    "default": 204800,
+                    "minimum": 1024,
+                    "maximum": 245000
                 },
                 "aiWorklog.eventCapture.exclude": {
                     "type": "array",

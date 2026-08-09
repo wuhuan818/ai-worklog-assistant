@@ -48,7 +48,7 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
     bugs = c.execute("SELECT * FROM bugs WHERE task_id=? ORDER BY created_at,id", (task_id,)).fetchall()
     source_counts = Counter()
     refs = []
-    notes=[]; file_changes=[]; diagnostics=[]; commands=[]; debug=[]
+    notes=[]; file_changes=[]; code_diffs=[]; diagnostics=[]; commands=[]; debug=[]
     for event in events:
         payload = _payload(event); et = event["event_type"]
         source_counts["events"] += 1; refs.append({"type": et, "id": event["id"]})
@@ -62,6 +62,25 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
             if sensitive_file_category(normalized_path):
                 item.update({"sensitive_content_excluded": True, "sensitive_category": "credential-file"})
             file_changes.append(item); source_counts["file_events"] += 1
+        elif et == "code_diff" and config.include_diff_snippets:
+            from app.ai.context.normalization import normalize_path, sensitive_file_category
+            normalized_path = normalize_path(event["file_path"] or payload.get("path") or "<unknown>", [event["workspace_path"]] if event["workspace_path"] else None)
+            if sensitive_file_category(normalized_path):
+                refs.pop()
+                source_counts["code_diffs_excluded"] += 1
+                continue
+            patch = payload.get("patch")
+            if not isinstance(patch, str) or not patch:
+                refs.pop()
+                source_counts["code_diffs_invalid"] += 1
+                continue
+            item = {"id": event["id"], "path": normalized_path, "captured_at": event["occurred_at"], "patch": patch}
+            for key in ("language_id", "file_size", "added_lines", "removed_lines", "changed_ranges", "original_patch_bytes", "retained_patch_bytes", "patch_truncated", "capture_mode", "redaction_count", "redaction_categories"):
+                if key in payload: item[key] = payload[key]
+            code_diffs.append(item); source_counts["code_diffs"] += 1
+        elif et == "code_diff":
+            refs.pop()
+            source_counts["code_diffs_omitted"] += 1
         elif et == "diagnostics_changed" and config.include_diagnostics:
             diagnostics.append(dict(payload, id=event["id"], occurred_at=event["occurred_at"])); source_counts["diagnostics"] += 1
         elif et.startswith("vscode_task_") and config.include_commands_and_tasks:
@@ -78,17 +97,19 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
     package={"schema_version": SCHEMA_VERSION, "context_id": str(uuid.uuid4()), "status":"preview",
       "project":{"project_id": task["project_id"], "display_name": project["name"] if project else "", "workspace_identity_summary": (project["workspace_identity_key"] or "") if project and "workspace_identity_key" in project.keys() else ""},
       "task":{"task_id":task["id"],"title":task["name"],"status":task["status"],"started_at":task["started_at"],"ended_at":task["ended_at"],"active_duration_seconds":int(task["duration_seconds"] or 0),"manual_notes":notes},
-      "bugs":bug_items,"file_changes":file_changes,"diagnostics":diagnostics,"commands_and_tasks":commands,"debug_events":debug,
+      "bugs":bug_items,"file_changes":file_changes,"code_diffs":code_diffs,"diagnostics":diagnostics,"commands_and_tasks":commands,"debug_events":debug,
       "event_summary":{"total":len(events)+len(legacy),"by_type":dict(sorted(Counter(e["event_type"] for e in events).items()))} if config.include_event_summary else {},
-      "statistics":{"bugs":len(bug_items),"file_changes":len(file_changes),"diagnostics":len(diagnostics)},
+      "statistics":{"bugs":len(bug_items),"file_changes":len(file_changes),"code_diffs":len(code_diffs),"diagnostics":len(diagnostics)},
       "provenance":{"source_counts":dict(sorted(source_counts.items())),"included_source_refs":refs,"excluded_source_counts":{}},
-      "privacy":{"redaction_count":0,"redaction_categories":{},"sensitive_files_excluded":0,"absolute_paths_removed":0,"binary_contents_excluded":0,"raw_secret_retained":False},
+      "privacy":{"redaction_count":0,"persisted_redaction_count":0,"redaction_categories":{},"sensitive_files_excluded":0,"absolute_paths_removed":0,"binary_contents_excluded":0,"raw_secret_retained":False},
       "budget":{"estimated_token_budget":config.estimated_input_token_budget,"estimated_tokens_before":0,"estimated_tokens_after":0,"characters_before":0,"characters_after":0,"truncated":False,"truncation_categories":{},"omitted_item_counts":{}}}
     redactions = Counter()
     package = _redact_with_counts(package, redactions)
-    package["privacy"]["redaction_count"] = sum(redactions.values())
+    persisted_redactions = sum(item.get("redaction_count", 0) for item in code_diffs if isinstance(item.get("redaction_count"), int))
+    package["privacy"]["persisted_redaction_count"] = persisted_redactions
+    package["privacy"]["redaction_count"] = sum(redactions.values()) + persisted_redactions
     package["privacy"]["redaction_categories"] = dict(sorted(redactions.items()))
-    package["privacy"]["sensitive_files_excluded"] = sum(1 for item in file_changes if item.get("sensitive_content_excluded"))
+    package["privacy"]["sensitive_files_excluded"] = sum(1 for item in file_changes + code_diffs if item.get("sensitive_content_excluded")) + source_counts["code_diffs_excluded"]
     try:
         from app.ai.context.budgeting import apply_budget
         package = apply_budget(package, config.estimated_input_token_budget)
