@@ -18,6 +18,7 @@ AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+
 | Base | `92f730c docs: add Stage 12A final report` |
 | Remote baseline | `origin/stage/12-code-change-capture` |
 | Stage 12B feature commit | `6a24666 feat: capture privacy-safe terminal commands` |
+| Extension Host contract-fix commit | `4d3f472 fix: validate terminal capture in extension host` |
 | Remote push | Passed：`origin/stage/12b-terminal-command-capture` |
 | Source working tree | Clean；未覆盖用户修改 |
 
