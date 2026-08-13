@@ -19,4 +19,15 @@ export class TaskLifecycleController {
   async createProject(api: ApiClient, name: string, workspacePath?: string): Promise<ProjectView> { try { const project = await api.createProject({ name, workspace_path: workspacePath }); this.projects = await api.listProjects(); this.notify(); return project; } catch (error) { this.report(friendlyTaskError(error)); throw error; } }
   async start(api: ApiClient, input: { name: string; project_id: string; description?: string; requirement_id?: string; tags?: string[] }): Promise<TaskView> { try { const task = await api.createTask(input); this.state.setTask(task); this.notify(); return task; } catch (error) { this.report(friendlyTaskError(error)); throw error; } }
   async end(api: ApiClient): Promise<TaskView> { if (!this.state.task) throw new Error('当前没有活动任务'); try { const task = await api.endTask(this.state.task.id); this.state.setTask(task); this.notify(); return task; } catch (error) { this.report(friendlyTaskError(error)); throw error; } }
+  async reconcileCompletedTask(api: ApiClient, taskId: string): Promise<TaskView | null> {
+    try {
+      const task = await api.getTask(taskId);
+      if (task.status !== 'completed') return null;
+      this.state.setTask(task);
+      this.notify();
+      return task;
+    } catch {
+      return null;
+    }
+  }
 }

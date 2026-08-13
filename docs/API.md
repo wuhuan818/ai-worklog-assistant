@@ -68,3 +68,8 @@ Errors include `task_not_found`, `task_not_completed`, `invalid_build_config`, `
 - `POST /knowledge/semantic-index/rebuild`: rebuilds vectors from published knowledge only.
 - `POST /knowledge/retrieve`: lexical, semantic, or hybrid retrieval; hybrid reports explicit lexical fallback.
 - `POST /knowledge/rag-answers`: one grounded answer from retrieved publications; citations are locally validated.
+## Stage 12B terminal command events
+
+`POST /tasks/{task_id}/events/batch` accepts `terminal_command` only through the captured-event contract. The payload contains a bounded single-line command, `medium|high` confidence, a `succeeded|failed|unknown` status/exit-code pair, start time and duration, UTF-8 truncation metadata, `capture_mode=shell-integration`, trust metadata, `output_captured=false`, and an optional workspace-relative CWD. Unknown fields and any output/transcript/environment fields are rejected with 422; the legacy `/events` route does not accept this event type.
+
+The server redacts and re-bounds the command before insertion into SQLite. Event-list responses therefore return only the persisted sanitized representation and server-authored redaction counts.

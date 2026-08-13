@@ -2,7 +2,7 @@ export interface ProjectView { id: string; user_id: string; name: string; worksp
 export interface ProjectResolution { project: ProjectView; created: boolean; matched_by: string; }
 export interface TaskView { id: string; project_id: string; name: string; description?: string; requirement_id?: string; status: string; started_at: string; ended_at?: string | null; duration_seconds?: number | null; tags: string[]; }
 export interface ActiveTaskResponse { task: TaskView | null; }
-export type WorklogEventType = 'file_changed'|'file_saved'|'code_diff'|'diagnostics_changed'|'vscode_task_started'|'vscode_task_process_started'|'vscode_task_process_ended'|'vscode_task_ended'|'debug_session_started'|'debug_session_terminated'|'debug_active_session_changed'|'manual_note'|'bug_note_added';
+export type WorklogEventType = 'file_changed'|'file_saved'|'code_diff'|'terminal_command'|'diagnostics_changed'|'vscode_task_started'|'vscode_task_process_started'|'vscode_task_process_ended'|'vscode_task_ended'|'debug_session_started'|'debug_session_terminated'|'debug_active_session_changed'|'manual_note'|'bug_note_added';
 export interface WorklogEvent { id: string; clientEventId: string; taskId: string; bugId?: string | null; eventType: WorklogEventType; source: 'vscode'; workspacePath?: string; filePath?: string; occurredAt: string; createdAt: string; sequence: number; payload: Record<string, unknown>; }
 export interface EventSummary { total: number; by_type: Record<string, number>; latest_event_at: string | null; }
 export type BugStatus = 'open' | 'active' | 'paused' | 'resolved';
@@ -12,6 +12,8 @@ export interface BugNote { id: string; client_note_id: string; user_id: string; 
 export interface BugResolution { id: string; user_id: string; task_id: string; bug_id: string; resolution_summary: string; root_cause?: string | null; verification?: string | null; created_at: string; }
 export interface BugListResponse { items: BugView[]; total: number; limit: number; offset: number; }
 export interface HttpTransport { fetch(input: string, init?: RequestInit): Promise<Response>; }
+const LOCAL_WRITE_TIMEOUT_MS = 15_000;
+const LOCAL_READ_TIMEOUT_MS = 5_000;
 export interface AiConnectionResult { ok: boolean; provider: string; model: string; latency_ms: number; status: string; capabilities: Record<string, boolean>; }
 export interface AiContextBuildConfig { schema_version: 'context-build-config/v1'; estimated_input_token_budget: number; include_manual_notes: boolean; include_bug_details: boolean; include_file_changes: boolean; include_diff_snippets: boolean; include_diagnostics: boolean; include_commands_and_tasks: boolean; include_debug_events: boolean; include_event_summary: boolean; }
 export interface AiContextBody { schema_version: 'task-context-package/v1'; task: Record<string, unknown>; privacy: Record<string, unknown>; budget: Record<string, unknown>; provenance: Record<string, unknown>; [key: string]: unknown; }
@@ -39,18 +41,29 @@ export class ApiError extends Error {
 export class ApiClient {
   constructor(private readonly baseUrl: string, private readonly token: string, private readonly transport: HttpTransport = { fetch }) {}
 
-  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async request<T>(path: string, init: RequestInit = {}, timeoutMs?: number): Promise<T> {
     const headers = { 'content-type': 'application/json', authorization: `Bearer ${this.token}`, ...(init.headers || {}) };
-    let response: Response;
-    try { response = await this.transport.fetch(`${this.baseUrl}${path}`, { ...init, headers }); }
-    catch (error) { throw new ApiError(0, `后端不可用：${error instanceof Error ? error.message : String(error)}`, 'transport'); }
-    if (!response.ok) {
-      let message = await response.text();
-      let errorCode: string | undefined;
-      try { const parsed = JSON.parse(message) as { detail?: string | { code?: string; message?: string } }; const detail = parsed.detail; if (typeof detail !== 'string') errorCode = detail?.code; message = typeof detail === 'string' ? detail : detail?.message || message; } catch { /* preserve non-JSON server errors */ }
-      throw new ApiError(response.status, message, 'http', errorCode);
+    const controller = timeoutMs ? new AbortController() : undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = timeoutMs
+      ? new Promise<never>((_resolve, reject) => { timeout = setTimeout(() => { reject(new Error(`请求超时（${timeoutMs}ms）`)); controller?.abort(); }, timeoutMs); })
+      : undefined;
+    const bounded = <Value>(operation: Promise<Value>): Promise<Value> => deadline ? Promise.race([operation, deadline]) : operation;
+    try {
+      const response = await bounded(this.transport.fetch(`${this.baseUrl}${path}`, { ...init, headers, ...(controller ? { signal: controller.signal } : {}) }));
+      if (!response.ok) {
+        let message = await bounded(response.text());
+        let errorCode: string | undefined;
+        try { const parsed = JSON.parse(message) as { detail?: string | { code?: string; message?: string } }; const detail = parsed.detail; if (typeof detail !== 'string') errorCode = detail?.code; message = typeof detail === 'string' ? detail : detail?.message || message; } catch { /* preserve non-JSON server errors */ }
+        throw new ApiError(response.status, message, 'http', errorCode);
+      }
+      return await bounded(response.json()) as T;
     }
-    return response.json() as Promise<T>;
+    catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new ApiError(0, `后端不可用：${error instanceof Error ? error.message : String(error)}`, 'transport');
+    }
+    finally { if (timeout) clearTimeout(timeout); }
   }
 
   health(): Promise<BackendHealth> { return this.request('/health', { headers: {} }); }
@@ -67,9 +80,10 @@ export class ApiClient {
     return response.task;
   }
   createTask(input: { name: string; project?: string; project_id?: string; description?: string; requirement_id?: string; tags?: string[] }): Promise<TaskView> { return this.request('/tasks', { method: 'POST', body: JSON.stringify(input) }); }
-  endTask(taskId: string): Promise<TaskView> { return this.request(`/tasks/${taskId}/end`, { method: 'POST' }); }
+  getTask(taskId: string): Promise<TaskView> { return this.request(`/tasks/${taskId}`, {}, LOCAL_READ_TIMEOUT_MS); }
+  endTask(taskId: string): Promise<TaskView> { return this.request(`/tasks/${taskId}/end`, { method: 'POST' }, LOCAL_WRITE_TIMEOUT_MS); }
   addEvent(event: Record<string, unknown>): Promise<{ id: string }> { return this.request('/events', { method: 'POST', body: JSON.stringify(event) }); }
-  batchEvents(taskId: string, events: Array<Record<string, unknown>>): Promise<{ inserted: number; duplicates: number; event_ids: string[] }> { return this.request(`/tasks/${taskId}/events/batch`, { method: 'POST', body: JSON.stringify({ events }) }); }
+  batchEvents(taskId: string, events: Array<Record<string, unknown>>): Promise<{ inserted: number; duplicates: number; event_ids: string[] }> { return this.request(`/tasks/${taskId}/events/batch`, { method: 'POST', body: JSON.stringify({ events }) }, LOCAL_WRITE_TIMEOUT_MS); }
   listEvents(taskId: string, limit = 20, options: { offset?: number; eventType?: string; bugId?: string } = {}): Promise<{ items: WorklogEvent[]; total: number; limit: number; offset: number }> { const query = new URLSearchParams({ limit: String(limit), ...(options.offset !== undefined ? { offset: String(options.offset) } : {}), ...(options.eventType ? { event_type: options.eventType } : {}), ...(options.bugId ? { bug_id: options.bugId } : {}) }); return this.request(`/tasks/${taskId}/events?${query}`); }
   eventSummary(taskId: string): Promise<EventSummary> { return this.request(`/tasks/${taskId}/events/summary`); }
   listBugs(taskId: string, options: { status?: BugStatus; severity?: BugSeverity; limit?: number; offset?: number } = {}): Promise<BugListResponse> { const query = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])); return this.request(`/tasks/${taskId}/bugs${query.size ? `?${query}` : ''}`); }

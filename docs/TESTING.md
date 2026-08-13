@@ -87,3 +87,8 @@ Run `scripts/verify-extension-host-ai-summary-smoke-e2e.ps1` once for the bounde
 # Stage 11A offline verification
 
 After building the backend, run `python scripts/verify-knowledge-retrieval.py`. It seeds a disposable database, verifies packaged capability/API, Chinese/English/mixed retrieval, category filtering, superseded exclusion, 100/1000-publication index timing, Top-K query timing, and persistence through an EXE restart. It uses no Provider or network service.
+## Stage 12B terminal command capture
+
+Run the backend and extension suites, then rebuild both release artifacts. Execute `python scripts/verify-terminal-command-capture.py --executable artifacts/backend/ai-worklog-server.exe` for the packaged SQLite → API → Context → Evidence → restart path. The verifier uses inert command strings, checks server-side secret redaction and post-redaction byte bounds, rejects stdout/transcript fields, and confirms every owned backend exits.
+
+Run `scripts/verify-extension-host-event-e2e.ps1` for the real VS Code 1.93.1 stable Shell Integration API path. Its deterministic Pseudoterminal emits OSC 633 execution boundaries, then asserts command/status capture and absence of the synthetic command secret and output sentinel from recent events, SQLite, and logs. Shell compatibility outside this deterministic fixture remains a short manual acceptance item.

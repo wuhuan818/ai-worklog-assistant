@@ -2,19 +2,19 @@
 
 ## Stage 11A boundary
 
-Published Knowledge retrieval is implemented locally. The Windows SQLite runtime used for packaging does not expose FTS5, so Stage 11A uses a compact deterministic lexical index with CJK character/bigram normalization instead of FTS/BM25. It is not semantic retrieval: embeddings, vector storage, hybrid ranking, reranking, and AI RAG answers remain Stage 11B+ work.
+Published Knowledge lexical retrieval is implemented locally. The Windows SQLite runtime used for packaging does not expose FTS5, so Stage 11A uses a compact deterministic lexical index with CJK character/bigram normalization instead of FTS/BM25. Stage 11B subsequently added optional embedding-backed semantic/hybrid retrieval and cited RAG answers.
 
 - VS Code 宿主中的 F5、Activity Bar、Webview、文件监听、异常提示、重启和退出清理仍需一次 GUI 人工验收；后端生命周期已有单元测试、真实 EXE 集成测试和 Windows 集成脚本。
 - OutputChannel 和 `context.logUri/ai-worklog.log` 已由代码和测试覆盖，但最终 GUI 下拉列表、查看日志按钮和错误提示仍需人工确认。
 - 开发环境需先执行后端打包；插件会优先解析配置路径，其次解析 workspace 根目录下的 `artifacts/backend/ai-worklog-server.exe`，并兼容扩展目录下的 `server/ai-worklog-server.exe`。
-- 终端完整输出、Shell Integration、精确代码 Diff 和 Debug Console 原始内容尚未实现。
+- 保存时精确 Code Diff 与 Shell Integration 命令元数据已实现；终端输出、环境变量和 Debug Console 原始内容明确不采集。
 - 默认 Mock Provider；真实模型、Embedding/RAG、飞书同步和离线队列未实现。
 - 审核 Webview 使用业务表单；大规模 UI 美化不属于当前阶段。
 - GitHub Actions 已配置，但需要远程 PR 工作流实际运行后再确认云端 Windows runner 结果；本地 Windows 三轮真实 EXE 验证已通过。
 - 阶段 3 当前仅允许单个活动任务；重复结束返回 409，项目重复创建在同名同 Workspace 时幂等。
 - 真实集成脚本依赖 Windows 可执行文件和 PowerShell；脚本已使用有界 deadline、PID 基线和 finally 清理，不应直接复用为用户进程管理工具。
 - 已解决：全新 Workspace 无活动任务时的 `Task not found` 同步误报；活动任务接口现返回稳定 `{task:null}` 空结果，F5 预启动会同步最新后端。
-阶段 4 的事件缓冲仅存在于扩展进程内；异常退出可能丢失尚未发送的事件。终端命令/输出、完整 Diff、Debug 变量和 Task 输出不采集。真实 VS Code Task/Debug 的完整自动触发依赖测试 Workspace，核心采集器通过可注入/公开 API 契约验证。
+阶段 4 的事件缓冲仍只存在于扩展进程内；进程被强制终止时可能丢失尚未发送的事件。Stage 12A/12B 已增加 Code Diff 与 Shell Integration 命令捕获，但终端输出、Debug 变量和 Task 输出不采集。正常结束 Task 会循环排空缓冲；真实 VS Code Task/Debug 的完整自动触发仍依赖测试 Workspace。
 F5 后端自动启动回归已修复：根因是激活流程缺少 `ServerManager.start()` 调用，当前由激活协调器自动发起，且不依赖侧边栏可见性；仍需用户完成一次真实 Extension Development Host 人工确认。
 
 已解决：AI Worklog 侧边栏重新显示后状态回退为“启动中”。View 现在从 ServerManager 当前状态刷新，视图生命周期不会停止或重置后端，旧异步渲染会被版本号丢弃。
@@ -44,3 +44,9 @@ The Stage 7.1 direct Reload Window automated regression and independent startup 
 ## Stage 09 scope boundary
 
 Stage 09 originally established summary-draft generation. Stage 10 subsequently added review, export, and knowledge publication; Stage 11A adds local Published Knowledge retrieval. Embeddings, semantic RAG, agents, web search, provider auto-selection, and cross-provider fallback are still outside the current boundary.
+
+## Stage 12B terminal-command boundary
+
+Terminal commands are captured only for an explicit active Task through the stable VS Code 1.93+ Shell Integration execution events. The product records a bounded, locally redacted command line, confidence, exit status, timing, optional workspace-relative CWD, and Task/Bug ownership. It never calls the terminal execution output stream and rejects payloads containing output, transcript, environment, or unknown fields.
+
+Capture depends on VS Code Shell Integration being active for the selected shell. Unsupported shells, complex prompts, subshells, remote sessions, or commands started before the Task may produce no event; this is a quiet feature degradation and does not block the rest of the worklog. A command still running when a Task ends has no reliable completion event and is deliberately omitted rather than assigned a fabricated result. The Extension Host test runtime is now pinned to VS Code 1.93.1; the Stage 7 references to 1.85.2 are historical only.

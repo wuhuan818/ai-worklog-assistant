@@ -15,6 +15,11 @@ test('event capture registers every VS Code source and sidebar controls', () => 
   assert.match(compiled, /onDidChangeDiagnostics/);
   assert.match(compiled, /onDidStartTask/);
   assert.match(compiled, /onDidEndTask/);
+  assert.match(compiled, /onDidStartTerminalShellExecution/);
+  assert.match(compiled, /onDidEndTerminalShellExecution/);
+  assert.match(compiled, /TerminalCommandTracker/);
+  assert.doesNotMatch(compiled, /\.read\(/);
+  assert.match(compiled, /flushIntervalMs/);
   assert.match(compiled, /onDidStartDebugSession/);
   assert.match(compiled, /onDidTerminateDebugSession/);
   assert.match(compiled, /onDidChangeActiveDebugSession/);

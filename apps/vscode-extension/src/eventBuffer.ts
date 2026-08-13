@@ -21,6 +21,32 @@ export class EventBuffer {
   get size(): number { return this.items.length; }
   clear(): void { this.items.splice(0); }
   add(event: BufferedEvent): void { if (this.items.length >= this.max) this.items.shift(); this.items.push(event); if (this.items.length >= this.threshold) void this.flush(); }
-  async flush(): Promise<void> { if (this.flushing || !this.items.length) return this.flushing || Promise.resolve(); const batch = this.items.splice(0, 100); this.flushing = (async () => { try { const grouped = new Map<string, BufferedEvent[]>(); for (const item of batch) grouped.set(item.taskId, [...(grouped.get(item.taskId) || []), item]); for (const [taskId, events] of grouped) await this.send(taskId, events); } catch { this.items.unshift(...batch); } finally { this.flushing = undefined; } })(); return this.flushing; }
-  async dispose(): Promise<void> { if (this.timer) clearInterval(this.timer); await this.flush(); }
+  async flush(): Promise<void> {
+    try { await this.flushBatch(false); }
+    catch { /* A concurrent authoritative flushAll call owns this failure. */ }
+  }
+  async flushAll(): Promise<void> {
+    while (this.flushing || this.items.length) {
+      if (this.flushing) await this.flushing;
+      else await this.flushBatch(true);
+    }
+  }
+  private async flushBatch(propagateError: boolean): Promise<void> {
+    if (this.flushing || !this.items.length) return this.flushing || Promise.resolve();
+    const batch = this.items.splice(0, 100);
+    this.flushing = (async () => {
+      try {
+        const grouped = new Map<string, BufferedEvent[]>();
+        for (const item of batch) grouped.set(item.taskId, [...(grouped.get(item.taskId) || []), item]);
+        for (const [taskId, events] of grouped) await this.send(taskId, events);
+      } catch (error) {
+        this.items.unshift(...batch);
+        if (propagateError) throw error;
+      } finally {
+        this.flushing = undefined;
+      }
+    })();
+    return this.flushing;
+  }
+  async dispose(): Promise<void> { if (this.timer) clearInterval(this.timer); try { await this.flushAll(); } catch { /* deactivate performs the authoritative flush and logging path */ } }
 }

@@ -8,7 +8,7 @@
         "url": "https://github.com/wuhuan818/ai-worklog-assistant.git"
     },
     "engines": {
-        "vscode": "^1.85.0"
+        "vscode": "^1.93.0"
     },
     "activationEvents": [
         "onStartupFinished",
@@ -175,6 +175,18 @@
                     "minimum": 1024,
                     "maximum": 245000
                 },
+                "aiWorklog.eventCapture.terminalCommands": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "在活动 Task 内通过 VS Code Shell Integration 捕获命令及退出状态；不捕获终端输出或环境变量。"
+                },
+                "aiWorklog.eventCapture.maxTerminalCommandBytes": {
+                    "type": "number",
+                    "default": 4096,
+                    "minimum": 256,
+                    "maximum": 8192,
+                    "description": "单条终端命令在本地事件中的 UTF-8 字节上限。"
+                },
                 "aiWorklog.eventCapture.exclude": {
                     "type": "array",
                     "items": {
@@ -215,7 +227,7 @@
     "scripts": {
         "compile": "tsc -p .",
         "lint": "eslint src --ext .ts",
-        "test": "npm run compile && node --test dist/*.test.js dist/ai/*.test.js dist/ai/context/*.test.js dist/ai/generation/*.test.js",
+        "test": "npm run compile && node --test dist/*.test.js dist/ai/*.test.js dist/ai/context/*.test.js dist/ai/generation/*.test.js test/vscodeTestLauncher.test.js",
         "test:e2e:event-capture": "node test/runEventCaptureE2E.js",
         "test:e2e:bug-lifecycle": "node test/runBugLifecycleE2E.js",
         "test:e2e:data-continuity": "node test/runDataContinuityE2E.js",
@@ -225,7 +237,7 @@
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
-        "@types/vscode": "^1.85.0",
+        "@types/vscode": "1.93.0",
         "@typescript-eslint/eslint-plugin": "^6.21.0",
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "3.2.1",

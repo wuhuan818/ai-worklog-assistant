@@ -10,7 +10,7 @@ import { EventCaptureController } from './eventCapture/eventCaptureController';
 import { RecoveryController } from './recoveryController';
 import { resolveWorkspaceIdentity } from './workspaceIdentity';
 import { promptPick, promptText } from './wizardInput';
-import { BugView, WorklogEvent } from './apiClient';
+import { BugView, TaskView, WorklogEvent } from './apiClient';
 import { BugState } from './bug/bugState';
 import { startBackendOnActivation } from './activationStartup';
 import { shouldApplyRender } from './viewState';
@@ -133,7 +133,7 @@ class Provider implements vscode.WebviewViewProvider {
 
 function eventLabel(event: WorklogEvent): string { return event.filePath || event.eventType.replaceAll('_', ' '); }
 async function showRecentEvents(state: TaskState, server: ServerManager): Promise<void> { if (!state.task || !server.api) return; const response = await server.api.listEvents(state.task.id, 20); const items = response.items.map(event => ({ label: `${new Date(event.occurredAt).toLocaleTimeString()}  ${eventLabel(event)}`, description: event.eventType, detail: summarizeEvent(event), event })); const selected = await vscode.window.showQuickPick(items, { title: '最近事件', matchOnDescription: true, ignoreFocusOut: true }); if (selected) await vscode.window.showInformationMessage(selected.detail || selected.description); }
-function summarizeEvent(event: WorklogEvent): string { const payload = event.payload; if (event.eventType === 'manual_note' && typeof payload.text === 'string') return payload.text.slice(0, 4000); if (event.filePath) return event.filePath; const name = payload.name; return typeof name === 'string' ? name : event.eventType; }
+function summarizeEvent(event: WorklogEvent): string { const payload = event.payload; if (event.eventType === 'manual_note' && typeof payload.text === 'string') return payload.text.slice(0, 4000); if (event.eventType === 'terminal_command' && typeof payload.command === 'string') return payload.command.slice(0, 4000); if (event.filePath) return event.filePath; const name = payload.name; return typeof name === 'string' ? name : event.eventType; }
 
 async function ensureServer(server: ServerManager) { try { return await server.start(); } catch (error) { vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); throw error; } }
 async function startTask(_context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController, events?: EventCaptureController): Promise<void> {
@@ -144,15 +144,31 @@ async function startTask(_context: vscode.ExtensionContext, state: TaskState, se
   const project=(await api.resolveProject({name: identity.displayName, workspace_path: currentPath, workspace_identity_key: identity.canonicalKey, workspace_identity_version: identity.version, workspace_kind: identity.kind, canonical_workspace_uri: identity.canonicalUris[0]})).project;
   const descriptionResult=await promptText({prompt:'任务描述（可选）'}); if(descriptionResult.kind==='cancelled')return; const requirementResult=await promptText({prompt:'需求编号（可选）'}); if(requirementResult.kind==='cancelled')return; const tagsResult=await promptText({prompt:'标签（可选，逗号分隔）'}); if(tagsResult.kind==='cancelled')return; const description=descriptionResult.value; const requirement_id=requirementResult.value; const rawTags=tagsResult.value;
   const task=controller ? await controller.start(api,{name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}) : await api.createTask({name:name.trim(),project_id:project.id,description,requirement_id,tags:rawTags.split(',')}); state.setTask(task); events?.setEnabled(true);
-  events?.record('vscode_task_started', { name: task.name, source: 'ai-worklog' });
   vscode.window.showInformationMessage(`已开始记录：${name}`);
 }
 async function endTask(context: vscode.ExtensionContext, state: TaskState, server: ServerManager, controller?: TaskLifecycleController, events?: EventCaptureController): Promise<void> {
   if (!state.task) { vscode.window.showWarningMessage('当前没有活动任务'); return; }
-  events?.record('vscode_task_ended', { name: state.task.name });
-  await events?.flush();
-  const api = await ensureServer(server); const task = controller ? await controller.end(api) : await api.endTask(state.task.id); state.setTask(task); events?.setEnabled(false);
-  vscode.window.showInformationMessage(`任务已结束，工作时长：${TaskState.formatDuration(task.duration_seconds || 0)}`);
+  const taskId = state.task.id;
+  const api = await ensureServer(server);
+  events?.pauseCapture();
+  let endedTask: TaskView | undefined;
+  try {
+    await events?.flushAll();
+    endedTask = controller ? await controller.end(api) : await api.endTask(taskId);
+  } catch (error) {
+    const reconciled = controller
+      ? await controller.reconcileCompletedTask(api, taskId)
+      : await api.getTask(taskId).catch(() => null);
+    if (!reconciled || reconciled.status !== 'completed') {
+      events?.resumeCapture();
+      throw error;
+    }
+    endedTask = reconciled;
+  }
+  state.setTask(endedTask);
+  events?.setEnabled(false);
+  events?.resumeCapture();
+  vscode.window.showInformationMessage(`任务已结束，工作时长：${TaskState.formatDuration(endedTask.duration_seconds || 0)}`);
 }
 async function refreshTask(state: TaskState, server: ServerManager, controller: TaskLifecycleController): Promise<void> { const api=await ensureServer(server); await controller.synchronize(api); }
 function toBugRecord(value: BugView): import('./bug/types').BugRecord { return { id: value.id, userId: value.user_id, projectId: value.project_id, taskId: value.task_id, title: value.title, description: value.description, severity: value.severity, category: value.category, source: value.source, externalReference: value.external_reference, tags: value.tags || [], status: value.status, createdAt: value.created_at, updatedAt: value.updated_at, activatedAt: value.activated_at, pausedAt: value.paused_at, resolvedAt: value.resolved_at, reopenedAt: value.reopened_at, totalActiveSeconds: value.total_active_seconds || 0 }; }
@@ -268,7 +284,7 @@ export function activate(context: vscode.ExtensionContext): void {
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.reopenBug', async (bugId: string) => { if (!state.task) throw new Error('No active task'); const bug = await (await ensureServer(server)).reopenBug(state.task.id, bugId); bugs.replace(toBugRecord(bug)); return bug; }));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.addManualNote', (note: string) => submitManualNote(state, server, note)));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.recordEvent', (type: WorklogEvent['eventType'] = 'manual_note') => events.record(type, { test: 'stage5' })));
-      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.flushEvents', () => events.flush()));
+      context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.flushEvents', () => events.flushAll()));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.restartBackend', () => server.restart()));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.endTask', () => endTask(context, state, server, controller, events).then(() => bugs.clearCurrent())));
       context.subscriptions.push(vscode.commands.registerCommand('aiWorklog.test.getRuntimeState', async () => { const task = state.task; const api = server.api; let summary = { total: 0, by_type: {}, latest_event_at: null as string | null }; let recent = { items: [] as WorklogEvent[], total: 0, limit: 100, offset: 0 }; if (task && api) { try { summary = await api.eventSummary(task.id); recent = await api.listEvents(task.id, 100); } catch { /* The test harness can observe the backend error state and restart it. */ } } const profile = aiProfiles.current(); const connection = aiConnection.forProfile(profile); return { extensionMode: context.extensionMode, backendState: server.state, pid: server.pid, port: server.port, backendGeneration: server.backendGeneration, instanceId: server.instanceId, task, bugs: bugs.all, currentBug: bugs.current, summary, recent, pending: events.pendingCount, logPath, dataDir: server.dataDir, recoveryState: recovery.state, aiConnection: connection.connection, aiProfileCount: aiProfiles.profiles().length, aiProfile: profile ? { ...profile, apiKey: undefined, hasKey: Boolean(await aiProfiles.key(profile.id)) } : undefined }; }));
@@ -307,9 +323,16 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 }
 export async function deactivate(): Promise<void> {
-  const flush = activeEvents?.flush();
-  if (flush) await Promise.race([flush, new Promise<void>(resolve => setTimeout(resolve, 2000))]);
-  await activeServer?.shutdown();
+  activeEvents?.pauseCapture();
+  const flush = activeEvents?.flushAll();
+  try {
+    if (flush) await Promise.race([flush, new Promise<void>(resolve => setTimeout(resolve, 2000))]);
+  } catch {
+    // Shutdown must still run when the loopback backend disappeared before
+    // the final bounded flush could complete.
+  } finally {
+    await activeServer?.shutdown();
+  }
   activeEvents = undefined;
   activeServer = undefined;
 }

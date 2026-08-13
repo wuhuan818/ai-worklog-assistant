@@ -20,6 +20,22 @@ test('ApiClient reports HTTP and transport failures', async () => {
   await assert.rejects(() => new ApiClient('http://localhost', 'bad', offline).health(), (error: ApiError) => error.status === 0 && error.message.includes('后端不可用'));
 });
 
+test('ApiClient bounds a wedged loopback request and aborts its transport', async () => {
+  let aborted = false;
+  const wedged: HttpTransport = { fetch: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }, { once: true });
+  }) };
+  const client = new ApiClient('http://127.0.0.1', 'token', wedged);
+  await assert.rejects(() => client.request('/never', {}, 20), (error: ApiError) => error.category === 'transport' && error.message.includes('请求超时'));
+  assert.equal(aborted, true);
+});
+
+test('ApiClient timeout also bounds a response body that never finishes', async () => {
+  const partialBody: HttpTransport = { fetch: async () => new Response(new ReadableStream({ start() { /* intentionally never close */ } }), { status: 200 }) };
+  const client = new ApiClient('http://127.0.0.1', 'token', partialBody);
+  await assert.rejects(() => client.request('/partial', {}, 20), (error: ApiError) => error.category === 'transport' && error.message.includes('请求超时'));
+});
+
 test('ApiClient exposes only the safe AI error message envelope', async () => {
   const client = new ApiClient('http://localhost', 'token', { fetch: async () => new Response(JSON.stringify({ detail: { code: 'unauthorized', message: 'API Key 无效或无权访问该模型' } }), { status: 400 }) });
   await assert.rejects(() => client.testAiConnection({ provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-flash', api_key: 'synthetic-key', thinking_enabled: false, timeout_seconds: 30, max_output_tokens: 16 }), /API Key 无效/);

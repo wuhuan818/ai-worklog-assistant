@@ -39,6 +39,23 @@ def _payload(row) -> dict:
     try: return json.loads(row["payload_json"])
     except (ValueError, TypeError): return {}
 
+def _persisted_redactions(items) -> Counter:
+    """Merge server-authored category counts while ignoring malformed metadata."""
+    merged = Counter()
+    for item in items:
+        categories = item.get("redaction_categories")
+        declared = item.get("redaction_count")
+        if not isinstance(categories, dict) or isinstance(declared, bool) or not isinstance(declared, int) or declared < 0:
+            continue
+        safe = Counter()
+        for category, count in categories.items():
+            if isinstance(category, str) and category.replace("-", "").isalpha() and len(category) <= 64 and not isinstance(count, bool) and isinstance(count, int) and 0 <= count <= 100000:
+                safe[category] += count
+        # Batch ingestion always writes matching values.  A mismatch indicates
+        # legacy or manually edited metadata and is excluded from privacy stats.
+        if sum(safe.values()) == declared: merged.update(safe)
+    return merged
+
 def build(c, task_id: str, config: ContextBuildConfig) -> dict:
     task = c.execute("SELECT * FROM tasks WHERE id=? AND user_id=?", (task_id, "local-user")).fetchone()
     if not task: raise KeyError("task_not_found")
@@ -55,6 +72,7 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
         if et == "manual_note" and config.include_manual_notes:
             text = payload.get("text") or payload.get("note") or payload.get("message")
             if text: notes.append({"id": event["id"], "text": text, "created_at": event["occurred_at"]}); source_counts["manual_notes"] += 1
+            else: refs.pop()
         elif et in {"file_changed", "file_saved"} and config.include_file_changes:
             from app.ai.context.normalization import normalize_path, sensitive_file_category
             normalized_path = normalize_path(event["file_path"] or payload.get("path") or "<unknown>", [event["workspace_path"]] if event["workspace_path"] else None)
@@ -83,10 +101,30 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
             source_counts["code_diffs_omitted"] += 1
         elif et == "diagnostics_changed" and config.include_diagnostics:
             diagnostics.append(dict(payload, id=event["id"], occurred_at=event["occurred_at"])); source_counts["diagnostics"] += 1
+        elif et == "terminal_command" and config.include_commands_and_tasks:
+            command = payload.get("command")
+            if not isinstance(command, str) or not command:
+                refs.pop()
+                source_counts["terminal_commands_invalid"] += 1
+                continue
+            item = {"id":event["id"], "event_type":et, "occurred_at":event["occurred_at"], "command":command}
+            for key in ("confidence","status","exit_code","started_at","duration_ms","original_command_bytes","retained_command_bytes","command_truncated","capture_mode","is_trusted","output_captured","cwd","redaction_count","redaction_categories"):
+                if key in payload: item[key] = payload[key]
+            commands.append(item); source_counts["commands"] += 1; source_counts["terminal_commands"] += 1
+        elif et == "terminal_command":
+            refs.pop()
+            source_counts["terminal_commands_omitted"] += 1
         elif et.startswith("vscode_task_") and config.include_commands_and_tasks:
             commands.append(dict(payload, id=event["id"], event_type=et, occurred_at=event["occurred_at"])); source_counts["commands"] += 1
+        elif et.startswith("vscode_task_"):
+            refs.pop()
+            source_counts["commands_omitted"] += 1
         elif et.startswith("debug_") and config.include_debug_events:
             debug.append(dict(payload, id=event["id"], event_type=et, occurred_at=event["occurred_at"])); source_counts["debug_events"] += 1
+        else:
+            # A provenance ref is an allow-list entry for model Evidence.  It
+            # must never outlive, or exist without, its concrete Context item.
+            refs.pop()
     bug_items=[]
     if config.include_bug_details:
         for bug in bugs:
@@ -99,16 +137,18 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
       "task":{"task_id":task["id"],"title":task["name"],"status":task["status"],"started_at":task["started_at"],"ended_at":task["ended_at"],"active_duration_seconds":int(task["duration_seconds"] or 0),"manual_notes":notes},
       "bugs":bug_items,"file_changes":file_changes,"code_diffs":code_diffs,"diagnostics":diagnostics,"commands_and_tasks":commands,"debug_events":debug,
       "event_summary":{"total":len(events)+len(legacy),"by_type":dict(sorted(Counter(e["event_type"] for e in events).items()))} if config.include_event_summary else {},
-      "statistics":{"bugs":len(bug_items),"file_changes":len(file_changes),"code_diffs":len(code_diffs),"diagnostics":len(diagnostics)},
+      "statistics":{"bugs":len(bug_items),"file_changes":len(file_changes),"code_diffs":len(code_diffs),"diagnostics":len(diagnostics),"commands_and_tasks":len(commands),"terminal_commands":sum(1 for item in commands if item.get("event_type") == "terminal_command")},
       "provenance":{"source_counts":dict(sorted(source_counts.items())),"included_source_refs":refs,"excluded_source_counts":{}},
       "privacy":{"redaction_count":0,"persisted_redaction_count":0,"redaction_categories":{},"sensitive_files_excluded":0,"absolute_paths_removed":0,"binary_contents_excluded":0,"raw_secret_retained":False},
       "budget":{"estimated_token_budget":config.estimated_input_token_budget,"estimated_tokens_before":0,"estimated_tokens_after":0,"characters_before":0,"characters_after":0,"truncated":False,"truncation_categories":{},"omitted_item_counts":{}}}
     redactions = Counter()
     package = _redact_with_counts(package, redactions)
-    persisted_redactions = sum(item.get("redaction_count", 0) for item in code_diffs if isinstance(item.get("redaction_count"), int))
+    persisted_categories = _persisted_redactions(code_diffs + [item for item in commands if item.get("event_type") == "terminal_command"])
+    persisted_redactions = sum(persisted_categories.values())
+    combined_categories = Counter(redactions); combined_categories.update(persisted_categories)
     package["privacy"]["persisted_redaction_count"] = persisted_redactions
-    package["privacy"]["redaction_count"] = sum(redactions.values()) + persisted_redactions
-    package["privacy"]["redaction_categories"] = dict(sorted(redactions.items()))
+    package["privacy"]["redaction_count"] = sum(combined_categories.values())
+    package["privacy"]["redaction_categories"] = dict(sorted(combined_categories.items()))
     package["privacy"]["sensitive_files_excluded"] = sum(1 for item in file_changes + code_diffs if item.get("sensitive_content_excluded")) + source_counts["code_diffs_excluded"]
     try:
         from app.ai.context.budgeting import apply_budget

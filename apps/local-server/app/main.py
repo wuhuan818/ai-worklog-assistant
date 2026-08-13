@@ -1,10 +1,12 @@
 from __future__ import annotations
-import asyncio, ctypes, hashlib, json, os, re, secrets, sqlite3, threading, uuid
+import asyncio, ctypes, hashlib, json, os, re, secrets, sqlite3, threading, unicodedata, uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, validator
 from app.ai.context.models import ContextBuildRequest
 
@@ -20,9 +22,28 @@ PORT = int(os.getenv('WORKLOG_PORT', '8765'))
 BACKEND_GENERATION = int(os.getenv('WORKLOG_BACKEND_GENERATION', '0'))
 PARENT_PID = int(os.getenv('WORKLOG_EXTENSION_HOST_PID', '0'))
 API_VERSION = 'stage-11b'
-FEATURES = ['code-change-capture-v2', 'ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1', 'semantic-retrieval-v1', 'rag-answer-v1']
+FEATURES = ['code-change-capture-v2', 'terminal-command-capture-v1', 'ai-summary-generation-v1', 'summary-review-workflow-v1', 'summary-export-v1', 'knowledge-publishing-v1', 'knowledge-retrieval-v1', 'semantic-retrieval-v1', 'rag-answer-v1']
 BUILD_COMMIT = os.getenv('AI_WORKLOG_BUILD_COMMIT', 'source')
 app = FastAPI(title='AI Worklog Assistant', version=API_VERSION)
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(_request, exception: RequestValidationError):
+    # FastAPI's default handler reflects the invalid input in its JSON body.
+    # Besides unnecessarily echoing possible secrets, an unpaired surrogate in
+    # that input cannot be UTF-8 encoded and turns an intended 422 into a 500.
+    # Return only stable validation metadata and normalize every message to
+    # well-formed Unicode.
+    def safe_text(value: object) -> str:
+        return str(value).encode('utf-8', errors='replace').decode('utf-8')
+    detail = []
+    for error in exception.errors():
+        detail.append({
+            'type': safe_text(error.get('type', 'value_error')),
+            'loc': [safe_text(item) if isinstance(item, str) else item for item in error.get('loc', ())],
+            'msg': safe_text(error.get('msg', 'Invalid request')),
+        })
+    return JSONResponse(status_code=422, content={'detail': detail})
+
 from app.ai.router import router as ai_router
 app.include_router(ai_router)
 from app.ai.generation.router import router as generation_router
@@ -180,7 +201,7 @@ class BugResolutionIn(BaseModel):
         if not value.strip(): raise ValueError('resolution_summary must not be blank')
         return value.strip()
 class EventIn(BaseModel): userId: str='local-user'; projectId: str; taskId: str; bugId: Optional[str]=None; source: str='vscode'; type: str; timestamp: str; payload: Dict[str,Any]={}; sensitivity: str='normal'
-EVENT_TYPES = {'file_changed','file_saved','code_diff','diagnostics_changed','vscode_task_started','vscode_task_process_started','vscode_task_process_ended','vscode_task_ended','debug_session_started','debug_session_terminated','debug_active_session_changed','manual_note'}
+EVENT_TYPES = {'file_changed','file_saved','code_diff','terminal_command','diagnostics_changed','vscode_task_started','vscode_task_process_started','vscode_task_process_ended','vscode_task_ended','debug_session_started','debug_session_terminated','debug_active_session_changed','manual_note'}
 class CapturedEvent(BaseModel):
     client_event_id: str = Field(min_length=1, max_length=200)
     event_type: str
@@ -206,23 +227,103 @@ class CapturedEvent(BaseModel):
         if value not in EVENT_TYPES: raise ValueError('unsupported event_type')
         return value
     @validator('payload')
-    def valid_code_diff_payload(cls, value, values):
-        if values.get('event_type') != 'code_diff': return value
-        patch = value.get('patch')
-        if not isinstance(patch, str) or not patch: raise ValueError('code_diff patch is required')
-        if len(patch.encode('utf-8')) > 245000: raise ValueError('code_diff patch exceeds 245 KB')
-        if not isinstance(values.get('file_path'), str) or not values.get('file_path'): raise ValueError('code_diff file_path is required')
-        for key in ('added_lines', 'removed_lines', 'original_patch_bytes', 'retained_patch_bytes'):
+    def valid_captured_payload(cls, value, values):
+        event_type = values.get('event_type')
+        if event_type == 'code_diff':
+            patch = value.get('patch')
+            if not isinstance(patch, str) or not patch: raise ValueError('code_diff patch is required')
+            if len(patch.encode('utf-8')) > 245000: raise ValueError('code_diff patch exceeds 245 KB')
+            if not isinstance(values.get('file_path'), str) or not values.get('file_path'): raise ValueError('code_diff file_path is required')
+            for key in ('added_lines', 'removed_lines', 'original_patch_bytes', 'retained_patch_bytes'):
+                number = value.get(key)
+                if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'code_diff {key} must be a non-negative integer')
+            if not isinstance(value.get('patch_truncated'), bool): raise ValueError('code_diff patch_truncated must be a boolean')
+            ranges = value.get('changed_ranges')
+            if not isinstance(ranges, list) or not ranges: raise ValueError('code_diff changed_ranges is required')
+            for item in ranges:
+                if not isinstance(item, dict): raise ValueError('code_diff changed_ranges must contain objects')
+                for key in ('before_start_line', 'before_line_count', 'after_start_line', 'after_line_count'):
+                    number = item.get(key)
+                    if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'code_diff changed_ranges.{key} must be a non-negative integer')
+            return value
+        if event_type != 'terminal_command': return value
+
+        allowed_keys = {
+            'command','confidence','status','exit_code','started_at','duration_ms',
+            'original_command_bytes','retained_command_bytes','command_truncated','capture_mode',
+            'is_trusted','output_captured','cwd',
+        }
+        unknown_keys = sorted(set(value) - allowed_keys)
+        if unknown_keys:
+            raise ValueError('terminal_command payload contains unsupported fields')
+        command = value.get('command')
+        if not isinstance(command, str) or not command: raise ValueError('terminal_command command is required')
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in command):
+            value['command'] = ''.join('\uFFFD' if 0xD800 <= ord(character) <= 0xDFFF else character for character in command)
+            raise ValueError('terminal_command command must contain valid Unicode')
+        if command != command.strip() or command != unicodedata.normalize('NFC', command): raise ValueError('terminal_command command must be normalized')
+        if any(ord(character) < 32 or 0x7F <= ord(character) <= 0x9F or character in {'\u2028','\u2029'} for character in command):
+            raise ValueError('terminal_command command must be a single line')
+        try: command_bytes = len(command.encode('utf-8'))
+        except UnicodeEncodeError: raise ValueError('terminal_command command must be valid UTF-8')
+        if command_bytes > 8192: raise ValueError('terminal_command command exceeds 8192 UTF-8 bytes')
+        if value.get('confidence') not in {'medium','high'}: raise ValueError('terminal_command confidence must be medium or high')
+        if value.get('status') not in {'succeeded','failed','unknown'}: raise ValueError('terminal_command status is invalid')
+        if 'exit_code' not in value or (value['exit_code'] is not None and (isinstance(value['exit_code'], bool) or not isinstance(value['exit_code'], int))):
+            raise ValueError('terminal_command exit_code must be an integer or null')
+        status, exit_code = value['status'], value['exit_code']
+        if ((status == 'succeeded' and exit_code != 0) or
+                (status == 'failed' and (exit_code is None or exit_code == 0)) or
+                (status == 'unknown' and exit_code is not None)):
+            raise ValueError('terminal_command status and exit_code are inconsistent')
+        started_at = value.get('started_at')
+        if not isinstance(started_at, str) or not started_at or started_at != started_at.strip(): raise ValueError('terminal_command started_at must be ISO 8601')
+        try:
+            normalized_time = re.sub(r'(\.\d{6})\d+(?=(Z|[+-]\d\d:\d\d)$)', r'\1', started_at).replace('Z', '+00:00')
+            datetime.fromisoformat(normalized_time)
+        except ValueError: raise ValueError('terminal_command started_at must be ISO 8601')
+        for key in ('duration_ms','original_command_bytes','retained_command_bytes'):
             number = value.get(key)
-            if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'code_diff {key} must be a non-negative integer')
-        if not isinstance(value.get('patch_truncated'), bool): raise ValueError('code_diff patch_truncated must be a boolean')
-        ranges = value.get('changed_ranges')
-        if not isinstance(ranges, list) or not ranges: raise ValueError('code_diff changed_ranges is required')
-        for item in ranges:
-            if not isinstance(item, dict): raise ValueError('code_diff changed_ranges must contain objects')
-            for key in ('before_start_line', 'before_line_count', 'after_start_line', 'after_line_count'):
-                number = item.get(key)
-                if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'code_diff changed_ranges.{key} must be a non-negative integer')
+            if isinstance(number, bool) or not isinstance(number, int) or number < 0: raise ValueError(f'terminal_command {key} must be a non-negative integer')
+        if value['retained_command_bytes'] > value['original_command_bytes']:
+            raise ValueError('terminal_command retained_command_bytes must not exceed original_command_bytes')
+        actual_command_bytes = command_bytes
+        if value['retained_command_bytes'] != actual_command_bytes:
+            raise ValueError('terminal_command retained_command_bytes must match command')
+        if not isinstance(value.get('command_truncated'), bool): raise ValueError('terminal_command command_truncated must be a boolean')
+        if not value['command_truncated'] and value['retained_command_bytes'] != value['original_command_bytes']:
+            raise ValueError('terminal_command byte counts must match when the command is not truncated')
+        if value['command_truncated'] and value['retained_command_bytes'] >= value['original_command_bytes']:
+            raise ValueError('terminal_command truncated byte counts are invalid')
+        if value.get('capture_mode') != 'shell-integration': raise ValueError('terminal_command capture_mode must be shell-integration')
+        if not isinstance(value.get('is_trusted'), bool): raise ValueError('terminal_command is_trusted must be a boolean')
+        if value.get('output_captured') is not False: raise ValueError('terminal_command output_captured must be false')
+        def contains_forbidden_capture_field(candidate):
+            if isinstance(candidate, dict):
+                for key, item in candidate.items():
+                    normalized_key = re.sub(r'(?<!^)(?=[A-Z])', '_', str(key)).lower().replace('-', '_')
+                    tokens = {token for token in normalized_key.split('_') if token}
+                    if normalized_key != 'output_captured' and tokens.intersection({'output','stdout','stderr','environment','env'}): return True
+                    if contains_forbidden_capture_field(item): return True
+            elif isinstance(candidate, list):
+                return any(contains_forbidden_capture_field(item) for item in candidate)
+            return False
+        if contains_forbidden_capture_field(value): raise ValueError('terminal_command raw output and environment fields are forbidden')
+        if 'cwd' in value:
+            cwd = value['cwd']
+            if not isinstance(cwd, str) or not cwd or cwd != cwd.strip() or cwd != unicodedata.normalize('NFC', cwd):
+                raise ValueError('terminal_command cwd must be a normalized relative path')
+            if any(0xD800 <= ord(character) <= 0xDFFF for character in cwd):
+                value['cwd'] = ''.join('\uFFFD' if 0xD800 <= ord(character) <= 0xDFFF else character for character in cwd)
+                raise ValueError('terminal_command cwd must contain valid Unicode')
+            if any(ord(character) < 32 or ord(character) == 127 or character in {'\u0085','\u2028','\u2029'} for character in cwd):
+                raise ValueError('terminal_command cwd must be a single line')
+            try: cwd_bytes = len(cwd.encode('utf-8'))
+            except UnicodeEncodeError: raise ValueError('terminal_command cwd must be valid UTF-8')
+            if cwd_bytes > 1024 or '\\' in cwd or cwd.startswith('/') or re.match(r'^[A-Za-z]:', cwd):
+                raise ValueError('terminal_command cwd must be a normalized relative path')
+            if cwd != '.' and any(part in {'','.','..'} for part in cwd.split('/')):
+                raise ValueError('terminal_command cwd must stay within the workspace')
         return value
 class EventBatch(BaseModel): events: List[CapturedEvent]
 class SummaryIn(BaseModel): content: Dict[str,Any]
@@ -407,13 +508,25 @@ def batch_events(task_id: str, batch: EventBatch, authorization: Optional[str]=H
     auth(authorization)
     if not batch.events: raise HTTPException(400, 'events must not be empty')
     if len(batch.events) > 100: raise HTTPException(400, 'maximum 100 events per batch')
-    c = db(); event_task(task_id, c); inserted = 0; duplicates = 0; ids = []
+    c = db(); inserted = 0; duplicates = 0; ids = []
     c.execute('BEGIN IMMEDIATE')
     try:
+        # Validate Task state only after acquiring the same SQLite write lock
+        # used by /end.  Batch insertion and Task completion are therefore
+        # serialized, with no check-then-write window for completed Tasks.
+        event_task(task_id, c)
         for event in batch.events:
-            redactions = Counter()
-            payload = filter_sensitive(event.payload, redactions)
-            if event.event_type == 'code_diff':
+            payload_input = dict(event.payload)
+            if event.event_type in {'code_diff','terminal_command'}:
+                # Client-provided counters are not authoritative.  Derive them
+                # from persisted-safe values and server-side filtering instead.
+                payload_input.pop('redaction_count', None)
+                payload_input.pop('redaction_categories', None)
+            redactions = existing_redaction_counts(payload_input) if event.event_type in {'code_diff','terminal_command'} else Counter()
+            payload = filter_sensitive(payload_input, redactions, terminal_command=event.event_type == 'terminal_command')
+            if event.event_type == 'terminal_command':
+                payload = bound_terminal_command_payload(payload)
+            if event.event_type in {'code_diff','terminal_command'}:
                 payload['redaction_count'] = sum(redactions.values())
                 payload['redaction_categories'] = dict(sorted(redactions.items()))
             payload_json = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
@@ -465,7 +578,7 @@ def events(task_id: str, authorization: Optional[str]=Header(None)):
 @app.post('/events')
 def add_event(x: EventIn, authorization: Optional[str]=Header(None)):
     auth(authorization); c=db(); task_row=event_task(x.taskId,c)
-    if x.type == 'code_diff': raise HTTPException(422, 'code_diff requires the captured event batch contract')
+    if x.type in {'code_diff','terminal_command'}: raise HTTPException(422, f'{x.type} requires the captured event batch contract')
     if task_row['project_id'] != x.projectId: raise HTTPException(422, 'projectId must match task project')
     if x.bugId and not c.execute('SELECT 1 FROM bugs WHERE id=? AND task_id=? AND user_id=?',(x.bugId,x.taskId,'local-user')).fetchone(): raise HTTPException(422, 'bugId must belong to this task')
     eid=x.__dict__.get('id') or str(uuid.uuid4()); c.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',(eid,x.userId,x.projectId,x.taskId,x.bugId,x.type,x.timestamp,json.dumps(filter_sensitive(x.payload, legacy_bracket_markers=True),ensure_ascii=False),x.sensitivity)); c.commit(); return {'id':eid}
@@ -625,19 +738,66 @@ def resolve_bug_legacy(bug_id: str, x: Optional[BugResolutionIn]=None, authoriza
     auth(authorization); row=db().execute('SELECT task_id FROM bugs WHERE id=? AND user_id=?',(bug_id,'local-user')).fetchone()
     if not row: raise HTTPException(404,'Bug not found')
     return resolve_bug_task(row['task_id'],bug_id,x or BugResolutionIn(resolution_summary='Resolved'),authorization)
-def filter_sensitive(value: Any, redactions: Optional[Counter] = None, legacy_bracket_markers: bool = False):
+def existing_redaction_counts(value: Any) -> Counter:
+    """Count only real stable placeholders, never client-supplied counters."""
+    counts = Counter()
+    allowed = {'private-key','bearer-token','credential','cookie','api-key','jwt','password'}
+    if isinstance(value, dict):
+        for item in value.values(): counts.update(existing_redaction_counts(item))
+    elif isinstance(value, list):
+        for item in value: counts.update(existing_redaction_counts(item))
+    elif isinstance(value, str):
+        for match in re.finditer(r'<redacted:([a-z-]+)>', value, flags=re.I):
+            category = match.group(1).lower()
+            if category in allowed: counts[category] += 1
+    return counts
+def bound_terminal_command_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Re-bound the sanitized representation and author its byte metadata."""
+    result = dict(payload)
+    command = result['command']
+    encoded = command.encode('utf-8')
+    sanitized_original_bytes = len(encoded)
+    marker = ' <command-truncated>'
+    if sanitized_original_bytes > 8192:
+        available = 8192 - len(marker.encode('utf-8'))
+        retained = encoded[:available].decode('utf-8', errors='ignore').rstrip()
+        # Never split a stable redaction marker.  A partial marker can be
+        # interpreted as a fresh key value during Context's defense-in-depth
+        # redaction, expanding the command beyond its persisted byte bound.
+        last_open = retained.rfind('<')
+        last_close = retained.rfind('>')
+        if last_open > last_close:
+            suffix = retained[last_open:].lower()
+            if '<redacted:'.startswith(suffix) or suffix.startswith('<redacted:') or '<command-truncated>'.startswith(suffix):
+                retained = retained[:last_open].rstrip()
+        command = (retained + marker) if retained else marker.strip()
+    retained_bytes = len(command.encode('utf-8'))
+    client_original = result.get('original_command_bytes', 0)
+    client_truncated = bool(result.get('command_truncated'))
+    truncated = client_truncated or sanitized_original_bytes > 8192
+    result['command'] = command
+    # These fields describe the persisted representation.  If redaction alone
+    # changes the byte length without truncating, both values must remain equal
+    # so the DTO invariant survives a read/replay.  A client-side or server-side
+    # truncation retains the best known pre-truncation size.
+    result['original_command_bytes'] = max(client_original, sanitized_original_bytes) if truncated else retained_bytes
+    result['retained_command_bytes'] = retained_bytes
+    result['command_truncated'] = truncated
+    return result
+
+def filter_sensitive(value: Any, redactions: Optional[Counter] = None, legacy_bracket_markers: bool = False, terminal_command: bool = False):
     if isinstance(value, dict):
         result = {}
         for key, item in value.items():
             if re.search(r'(?i)(api[_-]?key|token|password|secret|authorization)', key):
                 result[key] = '[REDACTED]'
                 if redactions is not None: redactions['sensitive-field-name'] += 1
-            else: result[key] = filter_sensitive(item, redactions, legacy_bracket_markers)
+            else: result[key] = filter_sensitive(item, redactions, legacy_bracket_markers, terminal_command and key == 'command')
         return result
     if isinstance(value, list): return [filter_sensitive(v, redactions, legacy_bracket_markers) for v in value]
     if isinstance(value, str):
-        from app.ai.context.redaction import redact_text
-        redacted, categories = redact_text(value)
+        from app.ai.context.redaction import redact_terminal_command, redact_text
+        redacted, categories = (redact_terminal_command(value) if terminal_command else redact_text(value))
         if redactions is not None: redactions.update(categories)
         return re.sub(r'<redacted:[a-z-]+>', '[REDACTED]', redacted) if legacy_bracket_markers else redacted
     return value

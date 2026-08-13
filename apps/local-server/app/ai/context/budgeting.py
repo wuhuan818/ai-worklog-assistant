@@ -136,7 +136,38 @@ def _shorten_diff_once(package: MutableMapping[str, Any]) -> bool:
     return True
 
 
+def _prune_unresolvable_evidence_refs(package: MutableMapping[str, Any]) -> int:
+    """Remove event refs whose concrete Context item is no longer visible.
+
+    Context budgeting removes whole list entries.  A ref without its item is
+    not meaningful evidence and must not remain in the model allow-list.
+    """
+    visible_ids = set()
+    task = package.get("task")
+    sections = [package.get(key) for key in ("file_changes", "code_diffs", "diagnostics", "commands_and_tasks", "debug_events")]
+    if isinstance(task, MutableMapping):
+        sections.append(task.get("manual_notes"))
+    for section in sections:
+        if not isinstance(section, list):
+            continue
+        for item in section:
+            if isinstance(item, MutableMapping) and isinstance(item.get("id"), str):
+                visible_ids.add(item["id"])
+    provenance = package.get("provenance")
+    refs = provenance.get("included_source_refs") if isinstance(provenance, MutableMapping) else None
+    if not isinstance(refs, list):
+        return 0
+    retained = [ref for ref in refs if isinstance(ref, MutableMapping) and isinstance(ref.get("id"), str) and ref["id"] in visible_ids]
+    removed = len(refs) - len(retained)
+    if removed:
+        provenance["included_source_refs"] = retained
+    return removed
+
+
 def _set_report(package: MutableMapping[str, Any], budget: int, before_chars: int, before_tokens: int, truncations: Counter, omissions: Counter) -> Tuple[int, int]:
+    pruned = _prune_unresolvable_evidence_refs(package)
+    if pruned:
+        omissions["provenance.included_source_refs"] += pruned
     report = {
         "estimated_token_budget": budget,
         "estimated_tokens_before": before_tokens,

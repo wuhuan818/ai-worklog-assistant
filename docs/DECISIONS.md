@@ -47,3 +47,10 @@ The Stage 7 backend-survival blocker is resolved in Stage 7.1 through explicit b
 - Provider-native structured response modes are compatibility aids, not trust boundaries: local schema/evidence/privacy validation is final.
 - A draft is immutable and read-only. Editing, regeneration, approval, rejection, Markdown, and knowledge writes remain Stage 10 work.
 - Retry is strictly bounded and never changes Provider, preventing accidental duplicate paid calls or routing surprises.
+
+## Stage 12B decision
+
+- Use the stable VS Code `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution` API, so the minimum extension engine and deterministic test runtime move together to 1.93.x. Terminal open/close and `sendText` are not command-observation substitutes.
+- Capture only medium/high-confidence command lines whose start occurs inside an active Task. Snapshot Task/Bug ownership at start and classify an unavailable exit code as `unknown`.
+- Never read terminal output. The backend accepts only a strict command-metadata payload; command-specific credential redaction happens before SQLite and remains bounded after replacement expansion.
+- Reuse `worklog_events`, Context `commands_and_tasks`, and the existing structured `commands_and_results` model. No destructive migration or parallel terminal-history store is introduced.

@@ -85,7 +85,7 @@ function preserveFailure(error) {
     fs.mkdirSync(data, { recursive: true });
     writeSettings(workspaceA);
     writeSettings(workspaceB);
-    const executable = process.env.VSCODE_EXECUTABLE || await downloadAndUnzipVSCode('1.85.2');
+    const executable = process.env.VSCODE_EXECUTABLE || await downloadAndUnzipVSCode('1.93.1');
     for (const [phase, workspace, marker] of [['one', workspaceA, 'host1'], ['two', workspaceA, 'host2'], ['three', workspaceB, 'host3'], ['four', workspaceA, 'host4']]) {
       if (Date.now() - startedAt > totalDeadlineMs) throw new Error('Data continuity exceeded the 240-second total deadline');
       markProgress(`${marker}_started`); await runPhase(executable, phase, workspace); markProgress(`${marker}_completed`);

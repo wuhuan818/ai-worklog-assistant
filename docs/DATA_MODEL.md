@@ -38,3 +38,6 @@ Provider profiles are not SQLite entities. Non-secret profile metadata is kept i
 # Stage 11A retrieval index
 
 `knowledge_search_index` is an additive local SQLite table rebuilt solely from `knowledge_publications WHERE status='published'`. It holds normalized searchable title/category/summary/reusable reason and the minimum provenance fields: publication, task, revision, publication time, content hash, and logical path. It intentionally has no prompt, provider response, secret, reasoning, or absolute path.
+## Stage 12B terminal command persistence
+
+`terminal_command` is an additive `worklog_events.event_type`; no table replacement is required. Its validated `payload_json` stores only a sanitized command representation and execution metadata. Raw output, terminal buffers, environment variables, terminal names, shell paths, PIDs, and absolute external CWDs are not part of the model. Context projects the event into `commands_and_tasks` and adds a resolvable `{type:"terminal_command", id:<event-id>}` provenance reference.

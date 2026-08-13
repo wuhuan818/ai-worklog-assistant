@@ -8,7 +8,7 @@ const reportPath = process.env.STAGE4_E2E_REPORT;
 const workspacePath = process.env.STAGE4_E2E_WORKSPACE;
 const dataDir = process.env.STAGE4_E2E_DATA_DIR;
 const timeoutMs = 30000;
-const report = { status: 'failed', extensionActivated: false, backendAutoStarted: false, backendHealthy: false, taskCreated: false, events: {}, restartPersistence: false, captureAfterRestart: false, endTaskFlush: false, logSecurityPassed: false, viewReopenStateConsistency: false, backendPidUnchangedAfterViewReopen: false, activeTaskPreservedAfterViewReopen: false, eventSummaryPreservedAfterViewReopen: false, residualProcessCount: 0, durationSeconds: 0 };
+const report = { runId: process.env.STAGE4_E2E_RUN_ID || null, status: 'failed', extensionActivated: false, backendAutoStarted: false, backendHealthy: false, taskCreated: false, events: {}, restartPersistence: false, captureAfterRestart: false, endTaskFlush: false, logSecurityPassed: false, terminalCommandCapturePassed: false, terminalCommandRedactionPassed: false, terminalOutputPrivacyPassed: false, terminalSQLitePrivacyPassed: false, terminalLogPrivacyPassed: false, viewReopenStateConsistency: false, backendPidUnchangedAfterViewReopen: false, activeTaskPreservedAfterViewReopen: false, eventSummaryPreservedAfterViewReopen: false, ownedBackendPids: [], residualProcessCount: null, durationSeconds: 0 };
 const tracePath = reportPath ? reportPath.replace(/\.json$/, '.trace.log') : null;
 function trace(message) { if (tracePath) fs.appendFileSync(tracePath, `${new Date().toISOString()} ${message}\n`, 'utf8'); }
 
@@ -19,9 +19,12 @@ async function runtime() { return vscode.commands.executeCommand('aiWorklog.test
 async function waitRuntime(predicate, label) { return waitFor(label, async () => { const state = await runtime(); return predicate(state) ? state : false; }); }
 function eventCounts(state) { return state.summary.by_type || {}; }
 function allEvents(state, type) { return (state.recent?.items || []).filter(item => (item.eventType || item.event_type) === type); }
+function rememberBackendPid(value) { const pid = Number(value); if (Number.isSafeInteger(pid) && pid > 0 && !report.ownedBackendPids.includes(pid)) report.ownedBackendPids.push(pid); }
+function escapeOsc633Command(value) { return value.replace(/\\/g, '\\\\').replace(/[\u0000-\u0020;]/g, character => `\\x${character.charCodeAt(0).toString(16).padStart(2, '0')}`); }
+function osc633(value) { return `\u001b]633;${value}\u0007`; }
 async function saveText(document, text) { const editor = await vscode.window.showTextDocument(document); const full = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)); await editor.edit(edit => edit.replace(full, text)); assert.equal(await document.save(), true); }
 async function waitDiagnostics(uri, predicate, label) { return waitFor(label, () => predicate(vscode.languages.getDiagnostics(uri)), 30000); }
-function sqliteCheck(dbPath, taskId) { const script = "import json,sqlite3,sys; c=sqlite3.connect(sys.argv[1]); rows=c.execute('select event_type,payload_json from worklog_events where task_id=? order by sequence',(sys.argv[2],)).fetchall(); print(json.dumps({'count':len(rows),'valid':all(json.loads(r[1]) is not None for r in rows)}))"; const result = childProcess.spawnSync('python', ['-c', script, dbPath, taskId], { encoding: 'utf8', timeout: 15000 }); if (result.status !== 0) throw new Error(`SQLite check failed: ${result.stderr}`); return JSON.parse(result.stdout.trim()); }
+function sqliteCheck(dbPath, taskId, forbidden = []) { const script = "import json,sqlite3,sys; forbidden=json.loads(sys.stdin.read() or '[]'); c=sqlite3.connect(sys.argv[1]); rows=c.execute('select event_type,payload_json from worklog_events where task_id=? order by sequence',(sys.argv[2],)).fetchall(); serialized=json.dumps(rows,ensure_ascii=False); print(json.dumps({'count':len(rows),'valid':all(json.loads(r[1]) is not None for r in rows),'forbidden_absent':[value not in serialized for value in forbidden]}))"; const result = childProcess.spawnSync('python', ['-c', script, dbPath, taskId], { encoding: 'utf8', input: JSON.stringify(forbidden), timeout: 15000 }); if (result.status !== 0) throw new Error(`SQLite check failed: ${result.stderr}`); return JSON.parse(result.stdout.trim()); }
 
 async function run() {
   const started = Date.now();
@@ -33,6 +36,7 @@ async function run() {
     trace('extension activated');
     report.extensionActivated = true;
     const initial = await waitRuntime(state => state.backendState === 'healthy' && state.pid, 'backend auto start');
+    rememberBackendPid(initial.pid);
     report.backendAutoStarted = true; report.backendHealthy = true;
     trace('backend healthy');
     if (initial.task?.status === 'active') {
@@ -81,6 +85,56 @@ async function run() {
     await vscode.commands.executeCommand('aiWorklog.test.flushEvents');
     const afterTask = await waitRuntime(state => (eventCounts(state).vscode_task_started || 0) > 0 && (eventCounts(state).vscode_task_ended || 0) > 0, 'task event persistence');
     assert.ok((eventCounts(afterTask).vscode_task_process_started || 0) >= 0);
+    const terminalMarker = `stage12b-terminal-${process.env.STAGE4_E2E_RUN_ID || Date.now()}`;
+    const terminalRawSecret = `stage12b-synthetic-bearer-${process.env.STAGE4_E2E_RUN_ID || Date.now()}`;
+    const terminalOutputSentinel = `stage12b-output-sentinel-${process.env.STAGE4_E2E_RUN_ID || Date.now()}`;
+    const terminalCommand = `printf "${terminalMarker}"; curl -H "Authorization: Bearer ${terminalRawSecret}" https://example.invalid\n`;
+    const terminalWriteEmitter = new vscode.EventEmitter();
+    const terminalCloseEmitter = new vscode.EventEmitter();
+    let terminalSequenceWritten = false;
+    const terminal = vscode.window.createTerminal({
+      name: 'AI Worklog Stage12B OSC 633 E2E',
+      pty: {
+        onDidWrite: terminalWriteEmitter.event,
+        onDidClose: terminalCloseEmitter.event,
+        open: () => {
+          terminalWriteEmitter.fire([
+            osc633('A'),
+            '$ ',
+            osc633('B'),
+            osc633(`E;${escapeOsc633Command(terminalCommand)}`),
+            osc633('C'),
+            `${terminalOutputSentinel}\r\n`,
+            osc633('D;0'),
+          ].join(''));
+          terminalSequenceWritten = true;
+        },
+        close: () => undefined,
+      },
+    });
+    try {
+      terminal.show(true);
+      await waitFor('synthetic terminal OSC sequence', () => terminalSequenceWritten);
+      const capturedTerminal = await waitFor('terminal command event persistence', async () => {
+        await vscode.commands.executeCommand('aiWorklog.test.flushEvents');
+        const state = await runtime();
+        const event = allEvents(state, 'terminal_command').find(item => typeof item.payload?.command === 'string' && item.payload.command.includes(terminalMarker));
+        return event ? { state, event } : false;
+      });
+      const terminalPayload = capturedTerminal.event.payload;
+      const recentTerminalJson = JSON.stringify(capturedTerminal.state.recent);
+      report.terminalCommandCapturePassed = terminalPayload.status === 'succeeded' && terminalPayload.exit_code === 0 && terminalPayload.capture_mode === 'shell-integration';
+      report.terminalCommandRedactionPassed = /<redacted:bearer-token>/i.test(terminalPayload.command) && !recentTerminalJson.includes(terminalRawSecret);
+      report.terminalOutputPrivacyPassed = terminalPayload.output_captured === false && !recentTerminalJson.includes(terminalOutputSentinel);
+      assert.equal(report.terminalCommandCapturePassed, true);
+      assert.equal(report.terminalCommandRedactionPassed, true);
+      assert.equal(report.terminalOutputPrivacyPassed, true);
+      trace('terminal shell execution captured with privacy checks');
+    } finally {
+      terminal.dispose();
+      terminalWriteEmitter.dispose();
+      terminalCloseEmitter.dispose();
+    }
     let debugError = null;
     try { await new Promise(async (resolve, reject) => { const subscription = vscode.debug.onDidTerminateDebugSession(() => { subscription.dispose(); resolve(); }); try { const startedDebug = await vscode.debug.startDebugging(vscode.workspace.workspaceFolders[0], 'AI Worklog Stage4 Debug'); if (!startedDebug) throw new Error('startDebugging returned false'); } catch (error) { subscription.dispose(); reject(error); } setTimeout(() => { subscription.dispose(); reject(new Error('debug session timed out')); }, 30000); }); } catch (error) { debugError = String(error); }
     await vscode.commands.executeCommand('aiWorklog.test.addManualNote', `阶段4 E2E 自动备注 ${process.env.STAGE4_E2E_RUN_ID}`);
@@ -89,6 +143,7 @@ async function run() {
     const beforeTaskId = beforeRestart.task.id; const beforeStartedAt = beforeRestart.task.started_at; const beforeTotal = beforeRestart.summary.total;
     await vscode.commands.executeCommand('aiWorklog.test.restartBackend');
     const recovered = await waitRuntime(state => state.backendState === 'healthy' && state.task?.id === beforeTaskId, 'backend restart recovery');
+    rememberBackendPid(recovered.pid);
     report.restartPersistence = recovered.task.started_at === beforeStartedAt && recovered.summary.total >= beforeTotal;
     assert.equal(report.restartPersistence, true);
     await saveText(document, 'const count: number = 4;\nconsole.log(count);\n'); await vscode.commands.executeCommand('aiWorklog.test.flushEvents');
@@ -100,8 +155,9 @@ async function run() {
     report.endTaskFlush = true; assert.equal(ended.task.id, beforeTaskId);
     const totalAfterEnd = ended.summary.total;
     await saveText(document, 'const count: number = 6;\nconsole.log(count);\n'); await delay(1500); const postEnd = await runtime(); assert.equal(postEnd.summary.total, totalAfterEnd);
-    const db = sqliteCheck(path.join(dataDir, 'worklog.db'), beforeTaskId); assert.ok(db.count >= totalAfterEnd && db.valid); report.sqlite = true;
-    const logPath = ended.logPath; const logText = logPath && fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : ''; const forbidden = [`阶段4 E2E 自动备注 ${process.env.STAGE4_E2E_RUN_ID}`, 'const count: number = "abc"', 'stage4-task-test', 'stage4 debug started']; assert.equal(forbidden.some(value => logText.includes(value)), false); report.logSecurityPassed = true;
+    const db = sqliteCheck(path.join(dataDir, 'worklog.db'), beforeTaskId, [terminalRawSecret, terminalOutputSentinel]); assert.ok(db.count >= totalAfterEnd && db.valid); report.sqlite = true;
+    report.terminalSQLitePrivacyPassed = Array.isArray(db.forbidden_absent) && db.forbidden_absent.length === 2 && db.forbidden_absent.every(Boolean); assert.equal(report.terminalSQLitePrivacyPassed, true);
+    const logPath = ended.logPath; const logText = logPath && fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : ''; const terminalForbidden = [terminalRawSecret, terminalOutputSentinel]; report.terminalLogPrivacyPassed = terminalForbidden.every(value => !logText.includes(value)); assert.equal(report.terminalLogPrivacyPassed, true); const forbidden = [`阶段4 E2E 自动备注 ${process.env.STAGE4_E2E_RUN_ID}`, 'const count: number = "abc"', 'stage4-task-test', 'stage4 debug started', ...terminalForbidden]; assert.equal(forbidden.some(value => logText.includes(value)), false); report.logSecurityPassed = true;
     report.events = ended.summary.by_type; report.durationSeconds = Math.round((Date.now() - started) / 1000); report.debug = debugError ? { passed: false, reason: debugError.replace(/([A-Za-z]:\\[^ ]+)/g, '[PATH]') } : { passed: true }; report.status = debugError ? 'passed-with-debug-environment-limit' : 'passed'; writeReport();
   } catch (error) { report.durationSeconds = Math.round((Date.now() - started) / 1000); writeReport({ error: error instanceof Error ? error.message : String(error) }); throw error; }
 }

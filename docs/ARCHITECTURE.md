@@ -36,3 +36,9 @@ The generation service reads one persisted Ready Context Package by ID and submi
 # Stage 11A retrieval layer
 
 The local backend owns a persistent `knowledge_search_index` derived exclusively from current `knowledge_publications`. On startup it reconciles legacy published rows; publication updates force a deterministic rebuild. The VS Code Sidebar and Command Palette call `GET /knowledge/search`, then open the returned managed Markdown logical path only after verifying it resolves beneath the managed knowledge root. Retrieval remains entirely local and does not invoke an AI Provider.
+
+## Stage 12A/12B development-evidence boundary
+
+While a user-controlled Task is active, the extension captures bounded save-time code diffs and stable VS Code Shell Integration command execution metadata. Terminal start snapshots own the Task/Bug association; terminal end supplies the most accurate command line and exit code. The capture path never reads `TerminalShellExecution.read()`, stdout/stderr, environment variables, terminal names, shell paths, or absolute external CWDs.
+
+Both event types use the existing `worklog_events` append-only JSON payload store. The backend validates a strict terminal payload allow-list, performs command-specific redaction before SQLite, re-bounds the sanitized UTF-8 representation, and authors redaction metadata. Context projects only explicit fields into `commands_and_tasks`, removes budget-pruned Evidence refs, and exposes `terminal_command:<event-id>` to the structured summary `commands_and_results` section.
