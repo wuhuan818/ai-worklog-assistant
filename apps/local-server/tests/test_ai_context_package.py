@@ -54,3 +54,13 @@ def test_token_statistics_remain_numeric_after_redaction(client, headers):
     assert isinstance(package["estimated_tokens"], int)
     assert isinstance(package["context"]["budget"]["estimated_tokens_after"], int)
     assert package["context"]["task"]["manual_notes"][0]["text"].endswith("<redacted:bearer-token>")
+
+def test_optional_task_creation_fields_are_preserved_in_context_and_redacted(client, headers):
+    task=client.post("/tasks",headers=headers,json={"name":"Context fields","project":"P","description":"Fix token=task-secret-123456","requirement_id":"REQ-42","tags":["cpp","compiler"]}).json()
+    assert client.post(f"/tasks/{task['id']}/end",headers=headers).status_code == 200
+    package=client.post(f"/tasks/{task['id']}/ai/context-packages",headers=headers,json={}).json()
+    task_context=package["context"]["task"]
+    assert task_context["description"] == "Fix token=<redacted:bearer-token>"
+    assert task_context["requirement_id"] == "REQ-42"
+    assert task_context["tags"] == ["cpp","compiler"]
+    assert "task-secret-123456" not in json.dumps(package, ensure_ascii=False)

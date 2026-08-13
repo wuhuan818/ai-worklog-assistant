@@ -8,7 +8,7 @@ Date: 2026-08-13
 
 AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+ 稳定 Shell Integration API 捕获有真实结束事件的终端命令元数据，将其在本地脱敏后持久化，并作为可解析的 `terminal_command` Evidence 送入 Context Package 与结构化总结的 `commands_and_results` 输入。终端输出、环境变量及外部绝对路径不进入该链路。
 
-当前唯一未完成项不是产品断言失败：用于最低支持版本门禁的 VS Code 1.93.1 官方归档仍未下载完成。作为补充运行证据，同一隔离场景已在本机 VS Code 1.132.0 上完整通过，包括真实 Shell Execution start/end、命令脱敏、输出隔离、SQLite/日志隐私、后端重启、Task 结束刷新和残留进程为零。Stage 12B commits 已形成并推送至远程开发分支；本报告的后续修订将随契约修复再次推送。
+当前唯一未完成发布门禁不是产品断言失败：用于最低支持版本门禁的 VS Code 1.93.1 官方归档仍在续传。作为补充运行证据，同一隔离场景已在本机 VS Code 1.132.0 上完整通过，包括真实 Shell Execution start/end、命令脱敏、输出隔离、SQLite/日志隐私、后端重启、Task 结束刷新和残留进程为零。
 
 ## 2. Branch / Git
 
@@ -22,7 +22,7 @@ AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+
 | Remote push | Passed：`origin/stage/12b-terminal-command-capture` |
 | Source working tree | Clean；未覆盖用户修改 |
 
-## 3. Audit Findings
+## 3. Engineering Audit Findings
 
 | Severity | Finding | Evidence | Action |
 |---|---|---|---|
@@ -37,13 +37,31 @@ AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+
 | Medium | Context 预算删除命令后可能保留悬空 Evidence ref；关闭 commands section 时也可能残留 ref。 | `commands_and_tasks` 与 `included_source_refs` 原先独立裁剪。 | 预算后按最终可见事件同步过滤 provenance；配置关闭时命令与 ref 同时消失。 |
 | High | Task end 响应丢失会让本地状态与已 completed backend 分叉；无界 loopback 请求还会永久暂停 capture。 | `/end` 成功但响应丢失、或 backend 只返回 headers 不结束 body。 | 失败后 GET 对账；batch/end/get 使用覆盖 headers+body 的总 deadline 与 AbortController。 |
 | Medium | 旧 E2E timeout 直接 `process.exit`，可能遗留 VS Code/backend；残留计数为硬编码。 | Launcher cleanup 不持有 child，未实际轮询 PID。 | 仅按本轮精确 owned PID 终止进程树，隔离 Electron/VS Code 环境变量，实际轮询初始/重启 backend PID 并写 cleanup 结果。 |
+| High | Summary Review 的“文件或模块”会显示 `unknown`，即使该条 `code_changes` 已引用含真实路径的 Code Diff Evidence。 | Review adapter 只复制 provider 的 `path`，不解析 `code_diff:<id>` 对应 Context `code_diffs[].path`。 | Review 加载该 Draft 的不可变 Context，仅在 path 为空/unknown 且 Evidence 唯一解析时回填真实路径；显式 path 永不覆盖。 |
+| Medium | Task 创建时收集的 description、requirement ID 与 tags 未进入 Context，因此用户付出输入成本却不改善 AI 输入。 | `tasks` 持久化字段存在，但 Context `task` 投影只包含 title/status/time。 | 将三个字段加入本地 Context task 投影，并在进入 Context 时统一脱敏；自动化验证 secret 不泄漏。 |
 
 Official API references:
 
 - [VS Code 1.93 — Terminal Shell Integration API](https://code.visualstudio.com/updates/v1_93/#_terminal-shell-integration-api)
 - [VS Code Shell Integration documentation](https://code.visualstudio.com/docs/terminal/shell-integration)
 
-## 4. Architecture Decision
+## 4. Product Quality Audit Findings
+
+| Area | Class | Severity | Problem | Action |
+|---|---|---|---|---|
+| Summary Review / 文件或模块 | Class A — Fix Now | High | 真实 Code Diff 已存在时仍展示 `unknown`，用户无法判断修改对象。 | 已修复 Evidence-to-path 解析并补 adapter 回归；旧 Draft 只要其 Context 仍含对应 Evidence 即可受益。 |
+| Task Creation / 字段价值 | Class A — Fix Now | Medium | 三个可选字段被保存但未进入 Context，收集与消费断层。 | 已让 description、requirement ID、tags 进入脱敏 Context；名称仍为唯一必填字段。 |
+| Task Creation / 交互 | Class C — Product Redesign | Medium | 当前为名称加三个连续 InputBox，默认创建路径过长。 | 本轮不删除仍有价值的可选信息，也不再增加一个“是否填写”步骤；建议未来用单一轻量表单集中必填/可选字段并支持后续编辑。 |
+| Main UI / Sidebar | Class C — Product Redesign | Medium | 单一 Webview 将 backend、Task、events、Bug、AI provider 与操作按钮纵向堆叠，主次关系弱且需频繁滚动。 | 本轮保持行为稳定；未来按 Task/Worklog、AI/Context、Knowledge/History 分区，Settings 移出主工作流，Summary Review 继续独立。 |
+| Terminal availability | Class B — Improve Now | Low | Shell Integration 不可用时若弹出错误会干扰原有工作流。 | 已采用静默能力降级；文件、Bug、Context 与 Summary 不依赖 terminal event 存在。 |
+
+## 5. Product Changes Made
+
+- Class A：修复 Summary Review `unknown` 路径；修复 Task 可选字段“只收集不消费”的数据断层。
+- Class B：Terminal capture 使用独立开关与静默降级，不改变 Task 主流程。
+- Class C：Task Creation 集中表单和 Sidebar 信息架构进入 Product Redesign Backlog。本轮没有大改 UI，因为这会同时改变输入、导航和主视图状态管理，超出局部低风险修复边界。
+
+## 6. Stage 12B Architecture Decision
 
 ### Selected approach
 
@@ -71,7 +89,7 @@ Active Worklog Task
 - 可选 CWD 仅保留 workspace-relative、规范化、无控制字符且不越界的路径。
 - Shell Integration 不可用时安静降级，不阻断文件、Bug、Context 或 Summary 主链。
 
-## 5. Implementation
+## 7. Implementation Data Flow
 
 ### Extension capture and lifecycle
 
@@ -104,7 +122,7 @@ Active Worklog Task
 - `apps/vscode-extension/test/downloadVscodeTestRuntime.js`
 - `scripts/verify-terminal-command-capture.py`
 
-## 6. Privacy / Bounds
+## 8. Privacy / Bounds
 
 - Extension default command limit: 4096 UTF-8 bytes; configurable 256–8192; hard maximum 8192.
 - Backend validates non-empty, trimmed, NFC, single-line, well-formed Unicode; C0/C1/U+2028/U+2029 are rejected or normalized before transport.
@@ -116,7 +134,7 @@ Active Worklog Task
 - Curl credential flags, Authorization Bearer/Basic, key/token/password assignments, sshpass/mysql/docker login and common shell/wrapper forms are covered by deterministic positive/negative tests.
 - Raw terminal output is never read, even temporarily for assertions.
 
-## 7. Database / Migration
+## 9. Database / Compatibility
 
 No destructive migration or table replacement is required.
 
@@ -124,18 +142,18 @@ No destructive migration or table replacement is required.
 
 Event insertion and Task completion now serialize through the same SQLite `BEGIN IMMEDIATE` write lock, preventing a completed Task from accepting a late concurrent batch.
 
-## 8. Tests and Build Verification
+## 10. Tests and Build Verification
 
 | Area | Result |
 |---|---|
-| Python full regression | **PASS — 135 passed** |
+| Python full regression | **PASS — 137 passed** |
 | Backend terminal/privacy targeted regression | **PASS — 66 passed** |
-| TypeScript/Node extension regression | **PASS — 84 passed, 1 skipped** (existing opt-in packaged test) |
+| TypeScript/Node extension regression | **PASS — 85 passed, 1 skipped** (existing opt-in packaged test) |
 | TypeScript compile | **PASS** |
 | ESLint | **PASS** |
 | E2E launcher helper tests | **PASS — 3 passed** (included in the 84) |
 | Backend PyInstaller build | **PASS** |
-| VSIX package | **PASS — `ai-worklog-assistant-0.1.1.vsix`, 15,323,777 bytes** |
+| VSIX package | **PASS — `ai-worklog-assistant-0.1.1.vsix`, 15,324,337 bytes** |
 | Packaged backend smoke | **PASS** |
 | Stage 12B packaged terminal pipeline | **PASS** |
 | Stage 12A packaged code-diff regression | **PASS** |
@@ -165,13 +183,13 @@ Artifact integrity:
 
 | Artifact | SHA-256 |
 |---|---|
-| `artifacts/backend/ai-worklog-server.exe` | `BF7EB66A7F63722F11E7D688191A1D809EB194BE4F89CC62C408BF1F0CC8F888` |
-| `apps/vscode-extension/server/ai-worklog-server.exe` | `BF7EB66A7F63722F11E7D688191A1D809EB194BE4F89CC62C408BF1F0CC8F888` |
-| `apps/vscode-extension/ai-worklog-assistant-0.1.1.vsix` | `85D58231D09E292CAF0270578049485DEBD4573FBB9BE7B75B7BE6FF074F11AE` |
+| `artifacts/backend/ai-worklog-server.exe` | `563D0B564D3DE756697003E9717D95C54C029A8B021D74FE794A75930ED7665D` |
+| `apps/vscode-extension/server/ai-worklog-server.exe` | `563D0B564D3DE756697003E9717D95C54C029A8B021D74FE794A75930ED7665D` |
+| `apps/vscode-extension/ai-worklog-assistant-0.1.1.vsix` | `92DA572BB3BD3D610A9F6308A8551EA640406D839DED5D522D6D42D24A287CFE` |
 
 The Pydantic v1-validator deprecation messages are inherited warnings, not Stage 12B failures.
 
-## 9. Demo Evidence
+## 11. Demo Evidence
 
 The packaged verifier uses inert command strings and never executes them. It persists three representative events:
 
@@ -180,6 +198,26 @@ The packaged verifier uses inert command strings and never executes them. It per
 3. A redaction-expansion case that must be re-bounded to at most 8192 UTF-8 bytes with coherent metadata.
 
 It also submits payloads containing inert `stdout` and `transcript` sentinels and proves they receive HTTP 422 and create zero SQLite rows. For accepted events it proves exact sanitized payload equality across SQLite, events API and Context, exact `terminal_command` Evidence refs, and immutable Context recovery after a backend restart.
+
+The deterministic failure → fix → success integration test creates one completed Task with this ordered evidence chain:
+
+```text
+terminal_command:<failed-id>
+  command = g++ hello.cpp -o hello.exe
+  status = failed
+  exit_code = 1
+
+code_diff:<diff-id>
+- std::cout << greet(userName) << std::endl;
++ std::cout << greet("World") << std::endl;
+
+terminal_command:<succeeded-id>
+  command = g++ hello.cpp -o hello.exe
+  status = succeeded
+  exit_code = 0
+```
+
+The resulting Context contains both command events and the real C++ patch in chronological order. All three refs are in the Evidence allow-list, and a deterministic structured Summary containing one `code_changes` item plus failed/succeeded `commands_and_results` passes local schema and Evidence validation. Command output is intentionally unavailable because Stage 12B never calls the raw execution output stream.
 
 The prepared Extension Host scenario uses a Pseudoterminal to emit official OSC 633 boundaries in this order:
 
@@ -220,7 +258,7 @@ The fixed 1.93.1 download is run in an exact owned Node child process with a 180
 }
 ```
 
-## 10. Remaining Issues
+## 12. Remaining Issues
 
 ### Blocking delivery operations
 
@@ -233,18 +271,24 @@ The fixed 1.93.1 download is run in an exact owned Node child process with a 180
 - The in-memory event buffer is not a durable offline queue; forced Extension Host termination can lose events not yet sent.
 - Terminal output and environment capture are intentionally out of scope.
 
+### Product Redesign Backlog
+
+- Task Creation：用单一轻量表单集中任务名称与可选 description/requirement/tags，保留键盘流、取消语义和校验，并增加后续编辑入口。
+- Main UI / Sidebar：将单一纵向视图按 Task/Worklog、AI/Context、Knowledge/History 分区；把 backend/provider Settings 从日常主流程移出，减少重复按钮与滚动。
+
 ### Future work
 
 - Broader real-shell compatibility matrix beyond the deterministic PTY protocol test.
 - Durable local offline event queue, if future product requirements justify the persistence/privacy trade-off.
 - Richer command result summaries must continue to avoid raw terminal output unless a separate explicit privacy design is approved.
 
-## 11. Manual UI Acceptance Needed
-
-After the official 1.93.1 archive is reachable and the automated E2E passes:
+## 13. Manual UI Acceptance Needed
 
 1. Install `apps/vscode-extension/ai-worklog-assistant-0.1.1.vsix` in VS Code 1.93 or newer.
-2. Use a shell with VS Code Shell Integration enabled, start a Worklog Task, and run a harmless command such as `git status`.
-3. End the Task and confirm the recent-event view displays the command without any terminal output.
-4. Build the Context Package and confirm `commands_and_tasks` contains the command and the Summary review labels its Evidence as “终端命令”.
-5. Confirm an unsupported shell degrades quietly and does not prevent Task, file event, Context or Summary workflows.
+2. Create a Task and judge the current four-step name/description/requirement/tags flow; this is the explicit input for the future concentrated-form redesign.
+3. Use a shell with VS Code Shell Integration enabled, start a Worklog Task, and run a harmless command such as `git status`.
+4. End the Task and confirm the recent-event view displays the command without any terminal output.
+5. Build the Context Package and confirm `commands_and_tasks` contains the command and the Summary review labels its Evidence as “终端命令”.
+6. Open a Summary whose `code_changes.path` was `unknown` but references one Code Diff; confirm “文件或模块” displays that Diff's actual relative path.
+7. Confirm an unsupported shell degrades quietly and does not prevent Task, file event, Context or Summary workflows.
+8. Review the current Sidebar vertical flow and validate the proposed future separation of Worklog, AI/Context, Knowledge/History, and Settings.

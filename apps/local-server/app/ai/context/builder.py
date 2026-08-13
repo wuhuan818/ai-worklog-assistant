@@ -63,6 +63,10 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
     events = c.execute("SELECT * FROM worklog_events WHERE task_id=? ORDER BY sequence,occurred_at,id", (task_id,)).fetchall()
     legacy = c.execute("SELECT * FROM events WHERE task_id=? ORDER BY timestamp,id", (task_id,)).fetchall()
     bugs = c.execute("SELECT * FROM bugs WHERE task_id=? ORDER BY created_at,id", (task_id,)).fetchall()
+    try:
+        task_tags = [item for item in json.loads(task["tags"] or "[]") if isinstance(item, str)]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        task_tags = []
     source_counts = Counter()
     refs = []
     notes=[]; file_changes=[]; code_diffs=[]; diagnostics=[]; commands=[]; debug=[]
@@ -134,7 +138,7 @@ def build(c, task_id: str, config: ContextBuildConfig) -> dict:
             bug_items.append(item); source_counts["bugs"] += 1; source_counts["bug_notes"] += len(item["notes"]); source_counts["bug_resolutions"] += len(item["resolutions"])
     package={"schema_version": SCHEMA_VERSION, "context_id": str(uuid.uuid4()), "status":"preview",
       "project":{"project_id": task["project_id"], "display_name": project["name"] if project else "", "workspace_identity_summary": (project["workspace_identity_key"] or "") if project and "workspace_identity_key" in project.keys() else ""},
-      "task":{"task_id":task["id"],"title":task["name"],"status":task["status"],"started_at":task["started_at"],"ended_at":task["ended_at"],"active_duration_seconds":int(task["duration_seconds"] or 0),"manual_notes":notes},
+      "task":{"task_id":task["id"],"title":task["name"],"description":task["description"] or "","requirement_id":task["requirement_id"] or "","tags":task_tags,"status":task["status"],"started_at":task["started_at"],"ended_at":task["ended_at"],"active_duration_seconds":int(task["duration_seconds"] or 0),"manual_notes":notes},
       "bugs":bug_items,"file_changes":file_changes,"code_diffs":code_diffs,"diagnostics":diagnostics,"commands_and_tasks":commands,"debug_events":debug,
       "event_summary":{"total":len(events)+len(legacy),"by_type":dict(sorted(Counter(e["event_type"] for e in events).items()))} if config.include_event_summary else {},
       "statistics":{"bugs":len(bug_items),"file_changes":len(file_changes),"code_diffs":len(code_diffs),"diagnostics":len(diagnostics),"commands_and_tasks":len(commands),"terminal_commands":sum(1 for item in commands if item.get("event_type") == "terminal_command")},

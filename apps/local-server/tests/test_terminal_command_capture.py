@@ -109,6 +109,85 @@ def test_terminal_command_survives_reopen_and_reaches_context_and_structured_sum
     assert summary.sections.commands_and_results[0].evidence_refs == [reference]
 
 
+def test_failure_fix_success_forms_one_context_and_summary_evidence_chain(client, headers):
+    task = active_task(client, headers)
+    failed = terminal_event(
+        f"compile-failed-{task['id']}",
+        "g++ hello.cpp -o hello.exe",
+        status="failed",
+        exit_code=1,
+        duration_ms=410,
+    )
+    failed["occurred_at"] = "2026-08-09T01:02:04Z"
+    patch = """--- a/hello.cpp
++++ b/hello.cpp
+@@ -1 +1 @@
+-std::cout << greet(userName) << std::endl;
++std::cout << greet(\"World\") << std::endl;"""
+    diff = {
+        "client_event_id": f"compile-fix-{task['id']}",
+        "event_type": "code_diff",
+        "source": "vscode",
+        "workspace_path": "C:/workspace",
+        "file_path": "hello.cpp",
+        "occurred_at": "2026-08-09T01:03:00Z",
+        "payload": {
+            "language_id": "cpp",
+            "patch": patch,
+            "added_lines": 1,
+            "removed_lines": 1,
+            "changed_ranges": [{"before_start_line": 1, "before_line_count": 1, "after_start_line": 1, "after_line_count": 1}],
+            "original_patch_bytes": len(patch.encode("utf-8")),
+            "retained_patch_bytes": len(patch.encode("utf-8")),
+            "patch_truncated": False,
+            "capture_mode": "save-time-snapshot",
+        },
+    }
+    succeeded = terminal_event(
+        f"compile-succeeded-{task['id']}",
+        "g++ hello.cpp -o hello.exe",
+        status="succeeded",
+        exit_code=0,
+        duration_ms=380,
+    )
+    succeeded["occurred_at"] = "2026-08-09T01:03:05Z"
+
+    stored = client.post(f"/tasks/{task['id']}/events/batch", headers=headers, json={"events": [failed, diff, succeeded]})
+    assert stored.status_code == 200, stored.text
+    failed_id, diff_id, succeeded_id = stored.json()["event_ids"]
+    assert client.post(f"/tasks/{task['id']}/end", headers=headers).status_code == 200
+    package = client.post(f"/tasks/{task['id']}/ai/context-packages", headers=headers, json={"config": {"estimated_input_token_budget": 32000}})
+    assert package.status_code == 200, package.text
+    context = package.json()["context"]
+
+    assert [(item["status"], item["exit_code"]) for item in context["commands_and_tasks"] if item.get("event_type") == "terminal_command"] == [("failed", 1), ("succeeded", 0)]
+    assert context["code_diffs"][0]["path"] == "hello.cpp"
+    assert "-std::cout << greet(userName)" in context["code_diffs"][0]["patch"]
+    assert '+std::cout << greet("World")' in context["code_diffs"][0]["patch"]
+    refs = context["provenance"]["included_source_refs"]
+    assert {"type": "terminal_command", "id": failed_id} in refs
+    assert {"type": "code_diff", "id": diff_id} in refs
+    assert {"type": "terminal_command", "id": succeeded_id} in refs
+
+    summary_content = {
+        "schema_version": "ai-summary-draft/v1",
+        "sections": {
+            "task_summary": {"summary": "Fixed the C++ compile failure", "outcomes": ["Compilation succeeds"], "evidence_refs": [f"terminal_command:{succeeded_id}"]},
+            "code_changes": [{"path": "hello.cpp", "summary": "Replaced userName with World", "impact": "Fixes compilation", "evidence_refs": [f"code_diff:{diff_id}"]}],
+            "commands_and_results": [
+                {"command": "g++ hello.cpp -o hello.exe", "result": "Exited with code 1", "status": "failed", "evidence_refs": [f"terminal_command:{failed_id}"]},
+                {"command": "g++ hello.cpp -o hello.exe", "result": "Exited with code 0", "status": "succeeded", "evidence_refs": [f"terminal_command:{succeeded_id}"]},
+            ],
+            "bug_solutions": [], "unresolved_issues": [], "todos": [],
+            "daily_report": {"title": "Compiler fix", "body": "Repaired and verified the build", "highlights": [], "blockers": [], "next_focus": [], "evidence_refs": [f"code_diff:{diff_id}"]},
+            "knowledge_candidates": [],
+        },
+    }
+    summary, _ = parse_and_validate_summary(json.dumps(summary_content), refs)
+    assert [item.status for item in summary.sections.commands_and_results] == ["failed", "succeeded"]
+    assert summary.sections.code_changes[0].evidence_refs == [f"code_diff:{diff_id}"]
+
+
 def test_terminal_secret_is_redacted_before_sqlite_and_counted_in_context(client, headers):
     task = active_task(client, headers)
     secret = "super-secret-token-123456"
