@@ -1,6 +1,6 @@
 # Stage 12B Final Report — Terminal Command Capture
 
-Date: 2026-08-09
+Date: 2026-08-13
 
 ## 1. Executive Result
 
@@ -8,7 +8,7 @@ Date: 2026-08-09
 
 AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+ 稳定 Shell Integration API 捕获有真实结束事件的终端命令元数据，将其在本地脱敏后持久化，并作为可解析的 `terminal_command` Evidence 送入 Context Package 与结构化总结的 `commands_and_results` 输入。终端输出、环境变量及外部绝对路径不进入该链路。
 
-当前唯一未完成项不是产品断言失败：真实 VS Code 1.93.1 Extension Host 不能下载。首次官方下载连接被远端重置，随后两次下载在受控时间窗内均未完成；最终一次有界运行留下标准失败报告，确认未启动 VS Code/backend、无残留 PID 且临时目录已删除。`.git` 仍在本沙箱以只读方式挂载，故 feature commit 与远程 push 尚未执行。其余源码测试、构建、VSIX、packaged backend、SQLite/Context/Evidence、重启恢复、生命周期和哈希验证均已通过。
+当前唯一未完成项不是产品断言失败：真实 VS Code 1.93.1 Extension Host 不能下载。首次官方下载连接被远端重置，随后两次下载在受控时间窗内均未完成；最终一次有界运行留下标准失败报告，确认未启动 VS Code/backend、无残留 PID 且临时目录已删除。Stage 12B feature commit 已形成，远程 push 尚未执行。其余源码测试、构建、VSIX、packaged backend、SQLite/Context/Evidence、重启恢复、生命周期和哈希验证均已通过。
 
 ## 2. Branch / Git
 
@@ -17,9 +17,9 @@ AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+
 | Branch | `stage/12b-terminal-command-capture` |
 | Base | `92f730c docs: add Stage 12A final report` |
 | Remote baseline | `origin/stage/12-code-change-capture` |
-| Stage 12B feature commit | Pending：当前沙箱将 `.git` 设为只读 |
-| Remote push | Pending：需先形成 feature/report commits |
-| Source working tree | Stage 12B 修改完整保留；未覆盖用户修改 |
+| Stage 12B feature commit | `6a24666 feat: capture privacy-safe terminal commands` |
+| Remote push | Pending：等待本报告最终 commit 后推送 |
+| Source working tree | 将在本报告 commit 后复核；未覆盖用户修改 |
 
 ## 3. Audit Findings
 
@@ -205,7 +205,7 @@ The download is now run in an exact owned Node child process with a 180-second d
 ### Blocking delivery operations
 
 - Run the isolated VS Code 1.93.1 Extension Host E2E after the official 1.93.1 archive is reachable. Current evidence: one `ECONNRESET`, two stalled downloads, then a final bounded 180-second timeout with verified cleanup. This is an external download gate, not an Extension Host product assertion.
-- Create feature/report commits and push `stage/12b-terminal-command-capture`. Current blocker: `.git` is read-only in this sandbox.
+- 在本报告的最终文档 commit 后，推送 `stage/12b-terminal-command-capture`。
 
 ### Non-blocking product limitations
 
