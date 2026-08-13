@@ -4,11 +4,11 @@ Date: 2026-08-13
 
 ## 1. Executive Result
 
-**Stage 12B status: PARTIAL（产品源码、packaged 数据链与 VS Code 1.132.0 Extension Host E2E PASS；固定最低版本 1.93.1 门禁待完成）**
+**Stage 12B status: PASS**
 
 AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+ 稳定 Shell Integration API 捕获有真实结束事件的终端命令元数据，将其在本地脱敏后持久化，并作为可解析的 `terminal_command` Evidence 送入 Context Package 与结构化总结的 `commands_and_results` 输入。终端输出、环境变量及外部绝对路径不进入该链路。
 
-当前唯一未完成发布门禁不是产品断言失败：用于最低支持版本门禁的 VS Code 1.93.1 官方归档仍在续传。作为补充运行证据，同一隔离场景已在本机 VS Code 1.132.0 上完整通过，包括真实 Shell Execution start/end、命令脱敏、输出隔离、SQLite/日志隐私、后端重启、Task 结束刷新和残留进程为零。
+产品源码、packaged 数据链、固定最低支持版本 VS Code 1.93.1 与补充版本 1.132.0 的隔离 Extension Host E2E 均已通过。两套宿主证据都覆盖真实 Shell Execution start/end、命令脱敏、输出隔离、SQLite/日志隐私、后端重启、Task 结束刷新和残留进程为零；1.93.1 官方归档还通过发布方 SHA-256 校验。
 
 ## 2. Branch / Git
 
@@ -161,7 +161,7 @@ Event insertion and Task completion now serialize through the same SQLite `BEGIN
 | Packaged backend lifecycle | **PASS** |
 | Owned backend cleanup | **PASS — observed 0 after verification** |
 | Real VS Code 1.132.0 OSC 633 Extension Host E2E | **PASS — all terminal privacy flags true; restart/end flush true; residual process count 0** |
-| Real VS Code 1.93.1 OSC 633 Extension Host E2E | **BLOCKED BY DOWNLOAD — official 1.93.1 archive remains incomplete** |
+| Real VS Code 1.93.1 OSC 633 Extension Host E2E | **PASS — all terminal privacy flags true; restart/end flush true; residual process count 0** |
 
 Packaged Stage 12B verifier output:
 
@@ -245,24 +245,35 @@ The successful supplemental run produced:
 }
 ```
 
-The fixed 1.93.1 download is run in an exact owned Node child process with a 180-second deadline. The parent kills only that owned child tree on timeout and always writes the final JSON report. The last fixed-version run produced:
+The official fixed-version archive completed at 140,779,492 bytes and matched the release response header exactly:
+
+```text
+SHA-256 d74a51590e4d1c9c7ad63488c2aafb83f9b665d67f6982c8249281c21c640977
+```
+
+The first 1.93.1 host attempt hit a transient backend-auto-start timeout without a product assertion or residual process. A clean isolated rerun completed the entire suite and produced:
 
 ```json
 {
-  "status": "failed",
-  "error": "VS Code 1.93.1 download timed out after 180 seconds",
+  "status": "passed",
   "testVscodeVersion": "1.93.1",
+  "terminalCommandCapturePassed": true,
+  "terminalCommandRedactionPassed": true,
+  "terminalOutputPrivacyPassed": true,
+  "terminalSQLitePrivacyPassed": true,
+  "terminalLogPrivacyPassed": true,
+  "restartPersistence": true,
+  "endTaskFlush": true,
   "residualProcessCount": 0,
-  "cleanupVerified": true,
-  "cleanup": { "tempRemoved": true, "ownedProcessCount": 1 }
+  "cleanupVerified": true
 }
 ```
 
 ## 12. Remaining Issues
 
-### Blocking delivery operations
+### Blocking
 
-- Run the isolated VS Code 1.93.1 Extension Host E2E after the official 1.93.1 archive is reachable. Current evidence: one `ECONNRESET`, two stalled downloads, then a final bounded 180-second timeout with verified cleanup. This is an external download gate, not an Extension Host product assertion.
+- None.
 
 ### Non-blocking product limitations
 
