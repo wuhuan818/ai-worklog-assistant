@@ -163,7 +163,8 @@ export class EventCaptureController implements vscode.Disposable {
       taskId: ownership?.taskId || task.id,
       ...(bugId ? { bug_id: bugId } : {}),
       occurred_at: new Date().toISOString(),
-      ...file,
+      ...(file.workspacePath ? { workspace_path: file.workspacePath } : {}),
+      ...(file.filePath ? { file_path: file.filePath } : {}),
       payload: safePayload(payload),
     };
     this.buffer.add(event);

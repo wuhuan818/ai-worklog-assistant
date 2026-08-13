@@ -4,11 +4,11 @@ Date: 2026-08-13
 
 ## 1. Executive Result
 
-**Stage 12B status: PARTIAL（产品源码与 packaged 数据链 PASS；发布授权门禁待完成）**
+**Stage 12B status: PARTIAL（产品源码、packaged 数据链与 VS Code 1.132.0 Extension Host E2E PASS；固定最低版本 1.93.1 门禁待完成）**
 
 AI Worklog Assistant 已能在用户显式活动 Task 内，通过 VS Code 1.93+ 稳定 Shell Integration API 捕获有真实结束事件的终端命令元数据，将其在本地脱敏后持久化，并作为可解析的 `terminal_command` Evidence 送入 Context Package 与结构化总结的 `commands_and_results` 输入。终端输出、环境变量及外部绝对路径不进入该链路。
 
-当前唯一未完成项不是产品断言失败：真实 VS Code 1.93.1 Extension Host 不能下载。首次官方下载连接被远端重置，随后两次下载在受控时间窗内均未完成；最终一次有界运行留下标准失败报告，确认未启动 VS Code/backend、无残留 PID 且临时目录已删除。Stage 12B commits 已形成并推送至远程开发分支。其余源码测试、构建、VSIX、packaged backend、SQLite/Context/Evidence、重启恢复、生命周期和哈希验证均已通过。
+当前唯一未完成项不是产品断言失败：用于最低支持版本门禁的 VS Code 1.93.1 官方归档仍未下载完成。作为补充运行证据，同一隔离场景已在本机 VS Code 1.132.0 上完整通过，包括真实 Shell Execution start/end、命令脱敏、输出隔离、SQLite/日志隐私、后端重启、Task 结束刷新和残留进程为零。Stage 12B commits 已形成并推送至远程开发分支；本报告的后续修订将随契约修复再次推送。
 
 ## 2. Branch / Git
 
@@ -127,21 +127,22 @@ Event insertion and Task completion now serialize through the same SQLite `BEGIN
 
 | Area | Result |
 |---|---|
-| Python full regression | **PASS — 134 passed** |
+| Python full regression | **PASS — 135 passed** |
 | Backend terminal/privacy targeted regression | **PASS — 66 passed** |
 | TypeScript/Node extension regression | **PASS — 84 passed, 1 skipped** (existing opt-in packaged test) |
 | TypeScript compile | **PASS** |
 | ESLint | **PASS** |
 | E2E launcher helper tests | **PASS — 3 passed** (included in the 84) |
 | Backend PyInstaller build | **PASS** |
-| VSIX package | **PASS — `ai-worklog-assistant-0.1.1.vsix`, 15,323,750 bytes** |
+| VSIX package | **PASS — `ai-worklog-assistant-0.1.1.vsix`, 15,323,777 bytes** |
 | Packaged backend smoke | **PASS** |
 | Stage 12B packaged terminal pipeline | **PASS** |
 | Stage 12A packaged code-diff regression | **PASS** |
 | Packaged backend restart recovery | **PASS** |
 | Packaged backend lifecycle | **PASS** |
 | Owned backend cleanup | **PASS — observed 0 after verification** |
-| Real VS Code 1.93.1 OSC 633 Extension Host E2E | **BLOCKED BY DOWNLOAD — official 1.93.1 archive did not complete; final controlled attempt timed out at 180 seconds** |
+| Real VS Code 1.132.0 OSC 633 Extension Host E2E | **PASS — all terminal privacy flags true; restart/end flush true; residual process count 0** |
+| Real VS Code 1.93.1 OSC 633 Extension Host E2E | **BLOCKED BY DOWNLOAD — official 1.93.1 archive remains incomplete** |
 
 Packaged Stage 12B verifier output:
 
@@ -165,7 +166,7 @@ Artifact integrity:
 |---|---|
 | `artifacts/backend/ai-worklog-server.exe` | `BF7EB66A7F63722F11E7D688191A1D809EB194BE4F89CC62C408BF1F0CC8F888` |
 | `apps/vscode-extension/server/ai-worklog-server.exe` | `BF7EB66A7F63722F11E7D688191A1D809EB194BE4F89CC62C408BF1F0CC8F888` |
-| `apps/vscode-extension/ai-worklog-assistant-0.1.1.vsix` | `67D68B6829347E5930AC3133A6E17C315F7FF1B09EDA8C715353E711DCB66C5B` |
+| `apps/vscode-extension/ai-worklog-assistant-0.1.1.vsix` | `85D58231D09E292CAF0270578049485DEBD4573FBB9BE7B75B7BE6FF074F11AE` |
 
 The Pydantic v1-validator deprecation messages are inherited warnings, not Stage 12B failures.
 
@@ -185,9 +186,27 @@ The prepared Extension Host scenario uses a Pseudoterminal to emit official OSC 
 A -> B -> E(command line) -> C -> synthetic output sentinel -> D;0
 ```
 
-Its assertions require `status=succeeded`, `exit_code=0`, stable command redaction, `output_captured=false`, and absence of both the raw command secret and output sentinel from recent events, SQLite and logs. The scenario is source-reviewed and syntax-tested, but cannot be reported as executed until the official test archive is available.
+Its assertions require `status=succeeded`, `exit_code=0`, stable command redaction, `output_captured=false`, and absence of both the raw command secret and output sentinel from recent events, SQLite and logs. The scenario was executed successfully in an isolated VS Code 1.132.0 Extension Host. During that run it also exposed and drove the repair of a real camelCase/snake_case file-path mismatch in buffered `code_diff` events; a cross-contract regression now locks the snake_case wire format.
 
-The download is now run in an exact owned Node child process with a 180-second deadline. The parent kills only that owned child tree on timeout and always writes the final JSON report. The final run produced:
+The successful supplemental run produced:
+
+```json
+{
+  "status": "passed",
+  "testVscodeVersion": "1.132.0",
+  "terminalCommandCapturePassed": true,
+  "terminalCommandRedactionPassed": true,
+  "terminalOutputPrivacyPassed": true,
+  "terminalSQLitePrivacyPassed": true,
+  "terminalLogPrivacyPassed": true,
+  "restartPersistence": true,
+  "endTaskFlush": true,
+  "residualProcessCount": 0,
+  "cleanupVerified": true
+}
+```
+
+The fixed 1.93.1 download is run in an exact owned Node child process with a 180-second deadline. The parent kills only that owned child tree on timeout and always writes the final JSON report. The last fixed-version run produced:
 
 ```json
 {

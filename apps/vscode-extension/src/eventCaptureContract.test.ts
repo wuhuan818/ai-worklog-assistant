@@ -11,6 +11,8 @@ test('event capture registers every VS Code source and sidebar controls', () => 
   assert.match(compiled, /SaveDiffTracker/);
   assert.match(compiled, /captureSavedDocument/);
   assert.match(compiled, /code_diff/);
+  assert.match(compiled, /workspace_path:\s*file\.workspacePath/);
+  assert.match(compiled, /file_path:\s*file\.filePath/);
   assert.match(compiled, /onDidChangeTextDocument/);
   assert.match(compiled, /onDidChangeDiagnostics/);
   assert.match(compiled, /onDidStartTask/);

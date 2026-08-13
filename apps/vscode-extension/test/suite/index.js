@@ -88,7 +88,7 @@ async function run() {
     const terminalMarker = `stage12b-terminal-${process.env.STAGE4_E2E_RUN_ID || Date.now()}`;
     const terminalRawSecret = `stage12b-synthetic-bearer-${process.env.STAGE4_E2E_RUN_ID || Date.now()}`;
     const terminalOutputSentinel = `stage12b-output-sentinel-${process.env.STAGE4_E2E_RUN_ID || Date.now()}`;
-    const terminalCommand = `printf "${terminalMarker}"; curl -H "Authorization: Bearer ${terminalRawSecret}" https://example.invalid\n`;
+    const terminalCommand = `printf "${terminalMarker}"; curl -H "Authorization: Bearer ${terminalRawSecret}" https://example.invalid`;
     const terminalWriteEmitter = new vscode.EventEmitter();
     const terminalCloseEmitter = new vscode.EventEmitter();
     let terminalSequenceWritten = false;
@@ -98,16 +98,20 @@ async function run() {
         onDidWrite: terminalWriteEmitter.event,
         onDidClose: terminalCloseEmitter.event,
         open: () => {
-          terminalWriteEmitter.fire([
-            osc633('A'),
-            '$ ',
-            osc633('B'),
-            osc633(`E;${escapeOsc633Command(terminalCommand)}`),
-            osc633('C'),
-            `${terminalOutputSentinel}\r\n`,
-            osc633('D;0'),
-          ].join(''));
-          terminalSequenceWritten = true;
+          // Let the terminal renderer attach before emitting integration
+          // boundaries.  Synchronous writes from open() can be lost by newer
+          // Extension Hosts even though the pseudoterminal itself is open.
+          setTimeout(() => {
+            const chunks = [
+              `${osc633('A')}$ ${osc633('B')}`,
+              `${terminalCommand}\r\n${osc633(`E;${escapeOsc633Command(terminalCommand)}`)}${osc633('C')}`,
+              `${terminalOutputSentinel}\r\n${osc633('D;0')}`,
+            ];
+            chunks.forEach((chunk, index) => setTimeout(() => {
+              terminalWriteEmitter.fire(chunk);
+              if (index === chunks.length - 1) terminalSequenceWritten = true;
+            }, index * 100));
+          }, 500);
         },
         close: () => undefined,
       },

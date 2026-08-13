@@ -8,7 +8,7 @@ const { isolatedEnvironment, ownedChildPid, terminateOwnedProcessTree, waitForPr
 const extensionRoot = path.resolve(__dirname, '..');
 const fixture = path.join(extensionRoot, 'test-fixtures', 'event-capture-workspace');
 const repoRoot = path.resolve(extensionRoot, '..', '..');
-const expectedVscodeVersion = '1.93.1';
+const expectedVscodeVersion = process.env.STAGE4_E2E_EXPECTED_VSCODE_VERSION || '1.93.1';
 const hardTimeoutMs = 300000;
 const downloadTimeoutMs = 180000;
 
@@ -23,6 +23,21 @@ function rememberPid(target, value) {
 function writeFinalReport(reportPath, report) {
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8');
+}
+function vscodeProduct(executable) {
+  const installation = path.dirname(executable);
+  const direct = path.join(installation, 'resources', 'app', 'product.json');
+  const candidates = [direct];
+  if (!fs.existsSync(direct)) {
+    for (const entry of fs.readdirSync(installation, { withFileTypes: true })) {
+      if (entry.isDirectory()) candidates.push(path.join(installation, entry.name, 'resources', 'app', 'product.json'));
+    }
+  }
+  for (const candidate of candidates) {
+    const product = readJson(candidate);
+    if (product) return { product, productPath: candidate };
+  }
+  return { product: null, productPath: direct };
 }
 async function downloadPinnedVscode(ownedPids) {
   const downloader = spawn(process.execPath, [path.join(__dirname, 'downloadVscodeTestRuntime.js'), expectedVscodeVersion], {
@@ -89,8 +104,7 @@ async function main() {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
 
     const vscodeExecutablePath = process.env.VSCODE_EXECUTABLE || await downloadPinnedVscode(ownedPids);
-    const productPath = path.join(path.dirname(vscodeExecutablePath), 'resources', 'app', 'product.json');
-    const product = readJson(productPath);
+    const { product } = vscodeProduct(vscodeExecutablePath);
     if (product?.version !== expectedVscodeVersion) throw new Error(`Expected VS Code ${expectedVscodeVersion}, received ${product?.version || 'unknown'}`);
     if (!fs.existsSync(path.join(extensionRoot, 'server', 'ai-worklog-server.exe'))) throw new Error('Packaged backend missing; run scripts/build-extension.ps1 first');
 

@@ -100,6 +100,19 @@ def test_cpp_save_diff_reaches_context_evidence_and_survives_reopen(client, head
     assert summary.sections.code_changes[0].evidence_refs == [reference]
 
 
+def test_code_diff_rejects_extension_camel_case_path_keys(client, headers):
+    """The buffered capture wire contract is snake_case, unlike response DTOs."""
+    task = active_task(client, headers)
+    event = code_diff_payload("camel-case-path")
+    event["workspacePath"] = event.pop("workspace_path")
+    event["filePath"] = event.pop("file_path")
+
+    response = client.post(f"/tasks/{task['id']}/events/batch", headers=headers, json={"events": [event]})
+
+    assert response.status_code == 422
+    assert "code_diff file_path is required" in response.text
+
+
 def test_code_diff_is_redacted_before_persistence_and_bounded_by_dto(client, headers):
     task = active_task(client, headers)
     secret_patch = PATCH + "\n+api_key=not-for-storage-123456"
